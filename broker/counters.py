@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from broker.approvals.base import ApprovalOutcome
+from broker.files import write_private_text
 from broker.rules.models import Verdict
 
 
@@ -49,7 +50,7 @@ class Counters:
 
     def save(self) -> None:
         payload = {"version": 1, "days": self.days}
-        self.path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        write_private_text(self.path, json.dumps(payload, indent=2, sort_keys=True))
 
 
 def weekly_report(counters: Counters, end: date) -> str:

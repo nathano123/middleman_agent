@@ -12,6 +12,8 @@ from datetime import date
 from pathlib import Path
 from typing import Protocol
 
+from broker.files import private_file
+
 
 class ApprovalHistory(Protocol):
     def prompts(self, agent_id: str, day: date) -> int:
@@ -49,7 +51,7 @@ class MemoryApprovalHistory:
 
 class SQLiteApprovalHistory:
     def __init__(self, path: Path) -> None:
-        self._conn = sqlite3.connect(path)
+        self._conn = sqlite3.connect(private_file(path))
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS prompts ("
             "agent_id TEXT, day TEXT, count INTEGER NOT NULL, PRIMARY KEY (agent_id, day))"

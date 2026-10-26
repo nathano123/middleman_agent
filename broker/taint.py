@@ -18,6 +18,7 @@ from typing import Protocol
 
 from broker.approvals.history import ApprovalHistory
 from broker.backends.base import Message
+from broker.files import private_file
 
 
 def normalize_address(raw: str) -> str:
@@ -111,7 +112,7 @@ class MemoryTaintStore:
 class SQLiteTaintStore:
     def __init__(self, path: Path, quiet: timedelta = timedelta(hours=24)) -> None:
         self.quiet = quiet
-        self._conn = sqlite3.connect(path)
+        self._conn = sqlite3.connect(private_file(path))
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS taint ("
             "agent_id TEXT PRIMARY KEY, reason TEXT NOT NULL,"

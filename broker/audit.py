@@ -20,6 +20,8 @@ from typing import Protocol
 
 import keyring
 
+from broker.files import private_file
+
 GENESIS_HASH = "0" * 64
 MAX_METADATA_STRING = 128
 
@@ -127,7 +129,7 @@ class AuditLog:
         self.path = path
         self.keys = keys
         self._key = log_key(keys, create=True) if keys else None
-        self._conn = sqlite3.connect(path)
+        self._conn = sqlite3.connect(private_file(path))
         self._conn.execute(SCHEMA)
         self._conn.commit()
 

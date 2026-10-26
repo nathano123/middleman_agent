@@ -8,6 +8,7 @@ from pathlib import Path
 from broker.audit import AuditError, AuditLog, KeyringKeyStore, verify
 from broker.config import DEFAULT_AGENT, DEFAULT_CONFIG_PATH, ConfigError, load_config
 from broker.counters import Counters, weekly_report
+from broker.files import private_dir
 from broker.rules.evaluator import PROFILE_NAMES, ProfileError, load_profile
 from broker.sim import format_table, simulate
 from broker.taint import SQLiteTaintStore
@@ -52,7 +53,7 @@ def cmd_taint_clear(config_path: Path, agent_id: str) -> int:
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    config.state_path("").mkdir(parents=True, exist_ok=True)
+    private_dir(config.state_path(""))
     store = SQLiteTaintStore(config.state_path("taint.db"))
     cleared = store.clear(agent_id)
     store.close()

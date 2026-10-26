@@ -186,3 +186,12 @@ Each break applied to the code, full suite run, then restored from git (253 pass
 - `THREAT_MODEL.md` written before any Google or MCP code. Main statement: the gate covers an agent whose only route is this MCP server; an agent with a shell as the same user can bypass it in many listed ways.
 - `broker/files.py`: state dir `0700`; every state file created `0600` from the first byte (`os.open` with mode, then `chmod` in case it existed); counters written via a `0600` temp file and atomic rename. SQLite journal/WAL files inherit the database file's mode.
 - `config_warnings()` flags a config file or folder that is group/other-writable or owned by another user; the MCP server prints these at start-up (step 4).
+
+## 2026-10-27 Agent identity from the launch argument
+- Supersedes the M1.5 choice (client name → agent id, unlisted clients share `default`): the MCP client name is self-reported, so an agent could change it to reset taint and approval history.
+- Chose: `broker agents add <label>` writes `label: agt_<16 hex>` into the config (random id, 0600 file) and prints the launch command `broker serve --agent <label> --config <path>`. The MCP client config starts one server process per agent with that argument; the server resolves the label to the id at start-up and refuses unregistered labels. Labels: 1-32 chars of `a-z0-9-`.
+- Whatever the client reports about itself is stored as `Session.client_hint`, logged as `client_hint` metadata, and never read by rules, taint or approvals.
+- `broker taint clear` now requires `--agent <label>`.
+- Cost: `agents add` rewrites the config from parsed YAML, so comments in the file are lost. Accepted for v0; the example file keeps the comments.
+- Remaining gap (THREAT_MODEL.md): an agent with a shell can register a new label or edit the client config to launch under another label; that is a local-file attack the gate does not stop.
+- Test: attack 29 switches the reported client name mid-run on the same launch identity; taint, prompt number (11), the full-view requirement and the refusal all carry over, and both hints are in the log.

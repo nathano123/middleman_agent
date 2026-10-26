@@ -4,14 +4,18 @@ The config is frozen after loading. Nothing an agent sends can change it: the on
 change mode, contacts or limits is to edit the file and restart the broker.
 """
 
+import re
+import secrets
 from pathlib import Path
 from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from broker.files import write_private_text
+
 ProfileName = Literal["cautious", "working", "autonomous"]
-DEFAULT_AGENT = "default"
+AGENT_LABEL = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 DEFAULT_CONFIG_PATH = Path("~/.agent-broker/config.yaml")
 
 
@@ -27,16 +31,19 @@ class BrokerConfig(BaseModel):
     known_contacts: tuple[str, ...] = ()
     profile: ProfileName = "working"
     mode: Literal["enforce", "watch"] = "enforce"
-    # MCP client name -> agent id. Clients not listed all share the "default" agent id,
-    # so taint cannot be shed by connecting under a different client name.
+    # Agent label -> random agent id, written by `broker agents add`. The MCP server is
+    # launched with `--agent <label>`; the id never comes from anything the agent sends.
     agents: dict[str, str] = Field(default_factory=dict[str, str])
     taint_quiet_hours: float = Field(default=24.0, gt=0)
     full_view_body_chars: int = Field(default=2000, ge=1)
     full_view_after_approvals: int = Field(default=10, ge=1)
     state_dir: Path = Path("~/.agent-broker")
 
-    def agent_id_for(self, client_name: str) -> str:
-        return self.agents.get(client_name, DEFAULT_AGENT)
+    def agent_id_for(self, label: str) -> str:
+        """The registered id for a launch label. Unregistered labels are refused."""
+        if label not in self.agents:
+            raise ConfigError(f"agent {label!r} is not registered; run `broker agents add {label}`")
+        return self.agents[label]
 
     def state_path(self, name: str) -> Path:
         return self.state_dir.expanduser() / name
@@ -51,3 +58,22 @@ def load_config(path: Path) -> BrokerConfig:
         return BrokerConfig.model_validate(raw)
     except ValidationError as exc:
         raise ConfigError(f"invalid config {path}: {exc}") from exc
+
+
+def add_agent(path: Path, label: str) -> str:
+    """Register a new agent label in the config file with a random id. Returns the id.
+
+    The file is rewritten from its parsed YAML, so comments in it are not kept.
+    """
+    if not AGENT_LABEL.match(label):
+        raise ConfigError("agent label must be 1-32 chars of a-z, 0-9 and '-'")
+    path = path.expanduser()
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    load_config(path)  # refuse to touch a config that does not load
+    agents: dict[str, str] = dict(raw.get("agents") or {})
+    if label in agents:
+        raise ConfigError(f"agent {label!r} already exists")
+    agents[label] = f"agt_{secrets.token_hex(8)}"
+    raw["agents"] = agents
+    write_private_text(path, yaml.safe_dump(raw, sort_keys=False))
+    return agents[label]

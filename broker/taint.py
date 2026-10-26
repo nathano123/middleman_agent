@@ -159,6 +159,7 @@ class Session:
     store: TaintStore
     history: ApprovalHistory  # prompt count and approved recipients, per agent per day
     clock: Callable[[], datetime] = utc_now
+    client_hint: str = ""  # what the MCP client says it is: logged, never used for decisions
     _held: TaintRecord | None = field(default=None, repr=False)
 
     def _current(self) -> TaintRecord | None:

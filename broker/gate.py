@@ -332,6 +332,8 @@ class Gate:
         row["profile"] = self.profile.name
         row["mode"] = self._mode
         row["agent_id"] = session.agent_id[:64]
+        if session.client_hint:
+            row["client_hint"] = session.client_hint[:64]
         row["tainted"] = session.tainted
         if session.tainted:
             row["taint_reason"] = session.taint_reason

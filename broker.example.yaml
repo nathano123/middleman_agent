@@ -4,7 +4,7 @@ self_addresses: [me.work@office.test]       # your other addresses; mail from th
 known_contacts: [alice@work.test, bob@work.test]
 profile: working                             # cautious | working | autonomous
 mode: enforce                                # enforce | watch (watch logs would-have, never blocks)
-agents: {}                                   # MCP client name -> agent id; unlisted share "default"
+agents: {}                                   # label -> id; add with `broker agents add <label>`
 taint_quiet_hours: 24                        # taint expires after this long with no new taint
 full_view_body_chars: 2000                   # tainted + longer body: must open full body to approve
 full_view_after_approvals: 10                # after this many prompts per agent per day, same rule

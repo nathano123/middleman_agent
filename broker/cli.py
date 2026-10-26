@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 
 from broker.audit import AuditError, AuditLog, KeyringKeyStore, verify
-from broker.config import DEFAULT_AGENT, DEFAULT_CONFIG_PATH, ConfigError, load_config
+from broker.config import DEFAULT_CONFIG_PATH, ConfigError, add_agent, load_config
 from broker.counters import Counters, weekly_report
 from broker.files import private_dir
 from broker.rules.evaluator import PROFILE_NAMES, ProfileError, load_profile
@@ -47,9 +47,10 @@ def cmd_profiles() -> int:
     return status
 
 
-def cmd_taint_clear(config_path: Path, agent_id: str) -> int:
+def cmd_taint_clear(config_path: Path, label: str) -> int:
     try:
         config = load_config(config_path)
+        agent_id = config.agent_id_for(label)
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -61,7 +62,7 @@ def cmd_taint_clear(config_path: Path, agent_id: str) -> int:
     reason = "taint cleared by user" if cleared else "taint clear requested; agent was clean"
     log.append("cli", "taint_clear", "allow", reason, {"agent_id": agent_id[:64]})
     log.close()
-    print(f"{agent_id}: {'taint cleared' if cleared else 'was not tainted'} (logged)")
+    print(f"{label}: {'taint cleared' if cleared else 'was not tainted'} (logged)")
     print("note: connections already open keep their taint until they reconnect")
     return 0
 
@@ -84,6 +85,18 @@ def cmd_report(config_path: Path, end: date) -> int:
     return 0
 
 
+def cmd_agents_add(config_path: Path, label: str) -> int:
+    try:
+        agent_id = add_agent(config_path, label)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"registered agent {label!r} (id {agent_id})")
+    print("launch command for this agent's MCP server:")
+    print(f"  uv --directory {Path.cwd()} run broker serve --agent {label} --config {config_path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="broker", description="Agent Access Broker (v0)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -93,8 +106,13 @@ def build_parser() -> argparse.ArgumentParser:
     taint = sub.add_parser("taint", help="manage agent taint")
     taint_sub = taint.add_subparsers(dest="taint_command", required=True)
     clear = taint_sub.add_parser("clear", help="clear an agent's taint and log it")
-    clear.add_argument("--agent", default=DEFAULT_AGENT)
+    clear.add_argument("--agent", required=True, help="agent label from `broker agents add`")
     clear.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    agents = sub.add_parser("agents", help="register agents (one MCP server entry each)")
+    agents_sub = agents.add_subparsers(dest="agents_command", required=True)
+    agents_add = agents_sub.add_parser("add", help="register a new agent label")
+    agents_add.add_argument("label")
+    agents_add.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     sim = sub.add_parser("simulate", help="replay fake workdays and count prompts")
     sim.add_argument("--profile", choices=[*PROFILE_NAMES, "all"], default="working")
     sim.add_argument("--days", type=int, default=7)
@@ -111,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_verify_log(args.path)
     if args.command == "taint":
         return cmd_taint_clear(args.config, args.agent)
+    if args.command == "agents":
+        return cmd_agents_add(args.config, args.label)
     if args.command == "simulate":
         return cmd_simulate(args.profile, args.days, args.seed)
     if args.command == "report":

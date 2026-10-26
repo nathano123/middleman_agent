@@ -5,6 +5,7 @@ description = "Local gate between AI agents and Gmail / Google Calendar (v0 vali
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "keyring>=25.7.0",
     "pydantic>=2",
     "pyyaml>=6",
 ]

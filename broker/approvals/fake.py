@@ -9,6 +9,7 @@ from broker.approvals.base import ApprovalOutcome, ApprovalRequest
 class FakeApprover:
     script: list[ApprovalOutcome] = field(default_factory=list[ApprovalOutcome])
     default: ApprovalOutcome = ApprovalOutcome.DENIED
+    views_full_body: bool = False  # simulates the user opening the full body before answering
     requests: list[ApprovalRequest] = field(default_factory=list[ApprovalRequest])
     answers: list[ApprovalOutcome] = field(default_factory=list[ApprovalOutcome])
 

@@ -19,6 +19,8 @@ class Session:
     session_id: str
     own_address: str
     known_contacts: frozenset[str]
+    agent_id: str = "default"
+    self_addresses: frozenset[str] = frozenset()
     tainted: bool = False
     taint_reason: str = ""
     _known: frozenset[str] = field(init=False, repr=False)

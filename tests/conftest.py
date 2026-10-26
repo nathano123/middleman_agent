@@ -39,6 +39,17 @@ class World:
     def call(self, tool: str, **args: object) -> Result:
         return self.gate.handle(self.session, tool, dict(args))
 
+    def reconnect(self) -> None:
+        """Simulate the same agent opening a new connection: a fresh Session, same agent id."""
+        old = self.session
+        self.session = Session(
+            f"{old.session_id}+",
+            old.own_address,
+            old.known_contacts,
+            agent_id=old.agent_id,
+            self_addresses=old.self_addresses,
+        )
+
 
 WorldFactory = Callable[..., World]
 
@@ -57,16 +68,22 @@ def build_world(
     events: list[str] | None = None,
     script: list[ApprovalOutcome] | None = None,
     default: ApprovalOutcome = ApprovalOutcome.DENIED,
+    self_addresses: list[str] | None = None,
+    views_full_body: bool = False,
 ) -> World:
     backend = FakeBackend.from_fixture(FIXTURE)
     if messages is not None:
         backend.messages = [m for m in backend.messages if m.id in messages]
     if events is not None:
         backend.events = [e for e in backend.events if e.id in events]
-    approver = FakeApprover(script=list(script or []), default=default)
+    approver = FakeApprover(
+        script=list(script or []), default=default, views_full_body=views_full_body
+    )
     log_path = tmp_path / f"audit-{profile}.db"
     log = AuditLog(log_path)
-    session = Session("sess-1", OWN_ADDRESS, KNOWN_CONTACTS)
+    session = Session(
+        "sess-1", OWN_ADDRESS, KNOWN_CONTACTS, self_addresses=frozenset(self_addresses or [])
+    )
     gate = Gate(load_profile(profile), backend, approver, log)
     return World(gate, session, backend, approver, log, log_path)
 
@@ -121,8 +138,12 @@ def world(tmp_path: Path) -> Iterator[WorldFactory]:
         events: list[str] | None = None,
         script: list[ApprovalOutcome] | None = None,
         default: ApprovalOutcome = ApprovalOutcome.DENIED,
+        self_addresses: list[str] | None = None,
+        views_full_body: bool = False,
     ) -> World:
-        w = build_world(tmp_path, profile, messages, events, script, default)
+        w = build_world(
+            tmp_path, profile, messages, events, script, default, self_addresses, views_full_body
+        )
         built.append(w)
         return w
 

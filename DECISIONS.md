@@ -77,3 +77,10 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 - Consequence: a broad inbox search (e.g. empty query) will almost always taint, since most inboxes hold mail from unknown senders. In the working profile this changes little (every send already asks; own-calendar events now ask after such a search). In autonomous it means most sessions that search will ask before sending. Worth watching in the 14-day trial for approval fatigue.
 - Rejected: dropping snippets from search results (loses the main reason to search); tainting only on snippets that "look like" instructions (would need a classifier in the decision path, which the brief rules out).
 - Test: attack test 21 (`tests/attacks/test_snippet.py`) runs in the autonomous profile, where taint decides the outcome. It fails if the search-taint call is removed (checked 2026-10-26).
+
+## 2026-10-27 Milestone 1.5, step 0: red-team tests before fixes
+- Added attacks 22-27 in `tests/attacks/test_gaps.py`: taint moved to a new session, Reply-To mismatch, buried payload, 30 small approvals then a bad one, own alias, spoofed known contact. All six fail on the M1 code and are marked `xfail(strict=True)`, so each fix must flip them (a strict xfail that passes is an error).
+- To let the tests be written against the intended API, inert fields were added first (no behaviour yet): `Message.reply_to/auth_result/list_unsubscribe/precedence/thread_id`, extra `ApprovalRequest` fields, `Session.agent_id/self_addresses`, `FakeApprover.views_full_body`. `auth_result` defaults to `unknown`, which keeps M1 behaviour.
+- Checked with `--runxfail` that each test fails on its target assertion, not on an incidental error.
+- The approval-count test (25) uses a hijacked flow that the fake approver approves 30 times; the bad send is approved without opening the body, which must be refused.
+- Commits from now on use the GitHub noreply address (`48062641+nathano123@users.noreply.github.com`). Earlier commits carry the owner's university address; history was left as is by the owner's choice (it is already public).

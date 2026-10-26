@@ -1,7 +1,9 @@
 """The Backend interface the gate calls. The fake and (later) Google backends implement it."""
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
+
+AuthResult = Literal["pass", "fail", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -13,6 +15,11 @@ class Message:
     date: str
     snippet: str
     body: str
+    reply_to: str = ""  # raw Reply-To header, empty if absent
+    auth_result: AuthResult = "unknown"  # SPF/DKIM/DMARC summary from Authentication-Results
+    list_unsubscribe: str = ""  # List-Unsubscribe header: marks bulk mail
+    precedence: str = ""  # Precedence header, e.g. "bulk" or "list"
+    thread_id: str = ""
 
 
 @dataclass(frozen=True)

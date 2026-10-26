@@ -1,0 +1,12 @@
+name: cautious
+description: Asks more. Tainted sessions cannot send or invite outsiders at all; every event asks.
+rules:
+  - {tool: search_mail, resource: mail, decision: allow, reason: "search returns headers and snippet only"}
+  - {tool: read_message, resource: mail, decision: allow_redacted, reason: "message body is returned with personal data masked"}
+  - {tool: list_events, resource: calendar, decision: allow, reason: "listing events is read-only"}
+  - {tool: draft_reply, resource: mail, decision: allow, reason: "drafts are never sent"}
+  - {tool: draft_reply, resource: mail, when: {tainted: true}, decision: ask, reason: "session read untrusted content"}
+  - {tool: send_mail, resource: mail, decision: ask, reason: "every send needs approval"}
+  - {tool: send_mail, resource: mail, when: {tainted: true}, decision: deny, reason: "cautious profile: tainted session cannot send"}
+  - {tool: create_event, resource: calendar, when: {own_calendar: true}, decision: ask, reason: "cautious profile: every event needs approval"}
+  - {tool: create_event, resource: calendar, when: {tainted: true, outside_attendees: true}, decision: deny, reason: "cautious profile: tainted session cannot invite outsiders"}

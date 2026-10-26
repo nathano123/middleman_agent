@@ -1,0 +1,11 @@
+name: autonomous
+description: Asks less. Clean sessions send and invite freely; a tainted session never sends or creates events without approval.
+rules:
+  - {tool: search_mail, resource: mail, decision: allow, reason: "search returns headers and snippet only"}
+  - {tool: read_message, resource: mail, decision: allow_redacted, reason: "message body is returned with personal data masked"}
+  - {tool: list_events, resource: calendar, decision: allow, reason: "listing events is read-only"}
+  - {tool: draft_reply, resource: mail, decision: allow, reason: "drafts are never sent"}
+  - {tool: send_mail, resource: mail, decision: allow, reason: "autonomous profile: clean session may send"}
+  - {tool: send_mail, resource: mail, when: {tainted: true}, decision: ask, reason: "session read untrusted content"}
+  - {tool: create_event, resource: calendar, when: {own_calendar: true}, decision: allow, reason: "event on own calendar"}
+  - {tool: create_event, resource: calendar, when: {tainted: true}, decision: ask, reason: "session read untrusted content"}

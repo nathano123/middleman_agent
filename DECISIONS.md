@@ -36,3 +36,11 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 - Why: taint must depend only on who wrote the content. That makes non-English, encoded or hidden instructions irrelevant to the decision, and makes look-alike display names useless.
 - `list_events` taints if any returned event has a non-empty description and an organizer who is not known. Events with no description do not taint (no attacker text to carry).
 - Rejected: per-address domain trust (e.g. "anyone @mycompany.com"): not in the brief; easy to add later as a known-domains list.
+
+## 2026-10-26 Audit log
+- Chose: SQLite table `log(id, ts, session_id, tool, decision, reason, metadata, prev_hash, hash)`. `hash` = SHA-256 of sorted compact JSON of every field except `hash` itself, with `id` and `prev_hash` included. The first row's `prev_hash` is 64 zeros. Ids are assigned explicitly (last id + 1) so the id is known before hashing.
+- `verify(path)` opens the file read-only and returns the first id whose `prev_hash` or `hash` does not fit, else `None`.
+- What it catches: an edit to any field of any row; a deleted first or middle row; reordered rows. An attacker who edits a row *and* recomputes its hash is caught at the following row.
+- What it does not catch (tested and documented): removing rows from the end, or rewriting the whole chain from some row onward. Both need an anchor kept outside the file (e.g. last hash shown on the phone, or written to a second location). Deferred.
+- Content is kept out structurally: metadata keys must be in a fixed allow-list (ids, counts, recipient/attendee *domains*, approval outcome, taint state), and strings are capped at 128 characters. Subject, body, snippet and description are not valid keys.
+- Rejected: SQLite triggers blocking UPDATE/DELETE (anyone with file access can drop them; adds code without adding a guarantee).

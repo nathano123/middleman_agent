@@ -1,10 +1,17 @@
 # Agent Access Broker (v0 prototype)
 
 A local gate between an AI agent and a user's Gmail and Google Calendar. It is a six-week
-validation prototype, not a product. **Status (Milestone 1.5):** rules, agent-level taint,
-honest approval prompts, keyed audit log, watch mode, usage counters, a prompt-budget
-simulation and 27 attack tests are built. There is no MCP server, no Google connection and no
-phone approval yet; everything runs against an in-memory fake inbox. Licensed Apache-2.0.
+validation prototype, not a product. Licensed Apache-2.0.
+
+**Status (Milestone 2, in progress):** a real stdio MCP server (six tools) in front of a real
+Gmail + Calendar backend, with agent identity from the launch argument, an approval queue with
+a pending-and-retry fallback, and hash checks between what was approved and what is sent.
+Tested offline against replayed Google HTTP responses; **the live run on a Google test account
+has not been done yet** (see LIVE_RUN.md). Approvals are answered from the command line, which
+is development-only (see below and THREAT_MODEL.md).
+
+Read first: [THREAT_MODEL.md](THREAT_MODEL.md) (what this does and does not protect),
+[SETUP.md](SETUP.md) (Claude Desktop / Claude Code), [LIVE_RUN.md](LIVE_RUN.md).
 
 ## What it does
 
@@ -109,7 +116,18 @@ approver, end in a prompt or a deny rather than a silent send. Known gaps:
   one identity; a registered one cannot pick another identity, but the client name itself
   will be self-reported by the MCP client (M2).
 - **Masking is regex-only.** Names, street addresses and many ID formats are not masked.
-- **Single process, single user.** No concurrency handling, no multi-user setup.
+- **Agents with a shell are not contained.** An agent that can run commands as you can read
+  the token from the keychain, call Google directly, run `broker approvals approve`, or edit
+  the config. THREAT_MODEL.md lists each bypass.
+- **Search snippets are not masked.** `read_message` masks personal data in body and snippet,
+  but `search_mail` returns the first ~90 characters unmasked.
+- **Bulk mail is reported, not ruled on.** `bulk` is returned and logged; rules decide before
+  a message is read, so it is not a rule condition.
+- **Claude Desktop's tool timeout is unconfirmed** (user reports say ~60 s). Approvals return
+  `pending_approval` after 45 s and rely on the agent repeating the call.
+- **One gate call at a time per agent process.** A call waiting for approval holds the next
+  one for up to 45 s.
+- **Single user.** No multi-user setup.
 
 ## Develop
 

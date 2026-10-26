@@ -236,3 +236,11 @@ Each break applied to the code, full suite run, then restored from git (253 pass
 - Not reproducible through Gmail (sending from an account always uses its real address and passes DKIM): spoofed known contact with failing auth (`m_spoof`), own alias (`m_alias`), missing auth header (`m_auth_unknown`). These remain offline-only; `plan` lists them. The Reply-To case needs the attacker temporarily in `known_contacts`.
 - `tests/live/` runs only with `BROKER_LIVE=1` (marker `live`); only those tests use the real keychain. They print metadata only. CI never sets the flag.
 - `scripts/live_report.py` turns the audit log into the LIVE_RUN table (metadata only).
+
+## 2026-10-27 Deliberate-break checks (Milestone 2, run in throwaway git worktrees)
+Each break applied in `git worktree add --detach <scratch>/wt HEAD` after a commit; the working tree was never modified.
+| break | result |
+|---|---|
+| approved-hash comparison removed (`check_approved` no-op) | 4 failed: fake and Google backend mismatch tests for send and create_event |
+| identity from the client-reported name (`Session.agent_id = client_hint`) | first run 1 failed (MCP hint test only); added attack 29b (two MCP connections, different client names); rerun: 2 failed |
+| MIME read-back check removed | 1 failed: `test_check_mime_catches_any_difference` |

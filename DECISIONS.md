@@ -44,3 +44,18 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 - What it does not catch (tested and documented): removing rows from the end, or rewriting the whole chain from some row onward. Both need an anchor kept outside the file (e.g. last hash shown on the phone, or written to a second location). Deferred.
 - Content is kept out structurally: metadata keys must be in a fixed allow-list (ids, counts, recipient/attendee *domains*, approval outcome, taint state), and strings are capped at 128 characters. Subject, body, snippet and description are not valid keys.
 - Rejected: SQLite triggers blocking UPDATE/DELETE (anyone with file access can drop them; adds code without adding a guarantee).
+
+## 2026-10-26 Fake backend and minimizer
+- Chose: `Backend` is a `typing.Protocol` with six methods. `FakeBackend` holds messages and events loaded from `tests/fixtures/mailbox.json`, and records sends, drafts and created events in lists so tests can assert on them. It does no I/O beyond reading the fixture.
+- Minimizer fields: search → id, sender, subject, date, snippet. read_message → the same plus body (masked under `allow_redacted`). list_events → id, title, start, end, organizer, attendee *count*, masked description. Attendee addresses are not returned.
+- Masking: three regexes, applied in order: emails → `[email]`, phone-like runs (8+ chars of digits/space/()-.) → `[phone]`, 6+ digit runs → `[number]`. Placeholder until Presidio (M4). Known misses: names, street addresses, IBANs (only the digit run is masked).
+- Event descriptions are returned (masked). They are the attack surface for invite injection; taint, not hiding, is what guards the follow-up action.
+- Open concern: `search_mail` returns the snippet (first ~90 chars of the body) and, per the brief's table, never taints. A short injected instruction can sit inside a snippet from an unknown sender. See README "What this does not cover".
+
+## 2026-10-26 Gate
+- Chose: `Gate(profile, backend, approver, log).handle(session, tool, args) -> Result`. Steps: unknown tool → deny; args validated by a per-tool pydantic model with `extra="forbid"` (bad args → deny); constraints computed from args + session; evaluate; deny → stop; ask → build prompt from args, approver must return `approved`; run backend; apply taint after reads; minimize; log exactly one row.
+- The approval prompt holds normalized recipient addresses, subject/title, first 200 chars of the body/description the agent wants to send, and the rule reason plus the taint reason. Nothing from inbound mail can reach it except what the agent itself copies into the outgoing arguments, and that is exactly what will be sent.
+- A recipient that does not parse as an address counts as outside.
+- The log row stores the evaluator's verdict (`ask` stays `ask`) plus `approval: approved|denied|timeout`, so a reviewer sees both the policy and the human answer.
+- `FakeApprover` answers from a script, then a default (denied). Timeout is just an outcome here; the real 5-minute clock arrives with ntfy (M3). `APPROVAL_TIMEOUT_SECONDS = 300` is defined for it.
+- Rejected: a separate "connector" layer in M1. With a fake backend it would be an empty pass-through; it arrives with the Google backend.

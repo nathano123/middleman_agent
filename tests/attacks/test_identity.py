@@ -6,6 +6,10 @@ about itself (Session.client_hint) is logged and never used for a decision.
 
 import json
 import sqlite3
+from pathlib import Path
+
+import mcp_types as types
+from mcp.client import Client
 
 from broker.approvals.base import ApprovalOutcome
 from broker.rules.models import Verdict
@@ -38,3 +42,22 @@ def test_29_claimed_client_name_does_not_change_taint_or_history(world: WorldFac
     hints = {json.loads(r[0]).get("client_hint") for r in conn.execute("SELECT metadata FROM log")}
     conn.close()
     assert hints == {"claude-desktop", "brand-new-assistant"}
+
+
+def test_29b_reconnect_under_new_client_name_through_mcp(tmp_path: Path) -> None:
+    """Two real MCP connections to one `--agent desktop` server, claiming different names."""
+    from tests.unit.test_mcp_server import make_runtime, run
+
+    runtime = make_runtime(tmp_path)
+
+    async def taint_it(client: Client) -> None:
+        await client.call_tool("read_message", {"message_id": "m_forward"})
+
+    async def try_event(client: Client) -> types.CallToolResult:
+        args = {"title": "Focus", "start": "s", "end": "e"}
+        return await client.call_tool("create_event", args)
+
+    run(runtime, taint_it, name="claude-desktop")
+    result = run(runtime, try_event, name="fresh-innocent-client")
+    # Own-calendar event without attendees asks only when tainted: taint followed the agent.
+    assert "Pending approval" in result.content[0].text  # type: ignore[union-attr]

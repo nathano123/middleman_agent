@@ -59,3 +59,9 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 - The log row stores the evaluator's verdict (`ask` stays `ask`) plus `approval: approved|denied|timeout`, so a reviewer sees both the policy and the human answer.
 - `FakeApprover` answers from a script, then a default (denied). Timeout is just an outcome here; the real 5-minute clock arrives with ntfy (M3). `APPROVAL_TIMEOUT_SECONDS = 300` is defined for it.
 - Rejected: a separate "connector" layer in M1. With a fake backend it would be an empty pass-through; it arrives with the Google backend.
+
+## 2026-10-26 Attack tests
+- Chose: 20 tests in `tests/attacks/`, all through `gate.handle` with the fake backend and fake approver. Each assumes a fully hijacked agent (it does what the injected text says) and checks what the gate lets through.
+- A shared `world` fixture (tests/conftest.py) re-checks the acceptance bar after every test: no fixture body/subject/snippet/description bytes in the SQLite file; every sent mail and every outside-attendee event has an approved prompt equal to its real recipients/subject/body preview; every approved prompt matches a real backend effect. Two unit tests prove the checker itself fails on an unapproved send and on leaked content.
+- Mutation check (manual, 2026-10-26): flipping working `send_mail` to allow → 12 attack tests failed + 12 invariant errors; disabling `mark_tainted` → 15 failed + 1 error. Both reverted.
+- Test 13 is deliberately a "negative": the same Hebrew instruction from a known contact does not taint. That is the design (sender rule, no classifier), and it is a real gap: a compromised or careless known contact is trusted.

@@ -30,7 +30,7 @@ def test_search_returns_header_fields_only() -> None:
 
 def test_read_redacted_masks_body() -> None:
     row = minimize_message(MSG, redact=True)
-    assert set(row) == {"id", "sender", "subject", "date", "snippet", "body"}
+    assert set(row) == {"id", "sender", "subject", "date", "snippet", "body", "bulk", "attachments"}
     assert "12345678" not in row["body"]
 
 

@@ -45,6 +45,7 @@ ALLOWED_METADATA_KEYS: frozenset[str] = frozenset(
         "agent_id",
         "client_hint",
         "auth_result",
+        "bulk",
         "mode",
         "would_have",
     }

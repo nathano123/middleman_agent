@@ -42,6 +42,7 @@ class BrokerConfig(BaseModel):
     fake_fixture: Path | None = None  # JSON inbox for backend: fake (development)
     approval_wait_seconds: float = Field(default=45.0, gt=0, le=300)
     timezone: str = "UTC"  # IANA name; used for calendar listing and event times
+    google_client_file: Path | None = None  # OAuth "Desktop app" client JSON (keep out of git)
 
     def agent_id_for(self, label: str) -> str:
         """The registered id for a launch label. Unregistered labels are refused."""

@@ -39,6 +39,8 @@ def minimize_message(message: Message, redact: bool) -> dict[str, Any]:
     if redact:  # the snippet is the start of the body, so it is masked too
         result["snippet"] = mask(message.snippet)
     result["body"] = mask(message.body) if redact else message.body
+    result["bulk"] = message.bulk
+    result["attachments"] = [{"name": n, "size": s} for n, s in message.attachments]
     return result
 
 

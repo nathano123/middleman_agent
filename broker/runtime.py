@@ -26,7 +26,9 @@ def make_backend(config: BrokerConfig) -> Backend:
         if config.fake_fixture is None:
             return FakeBackend()
         return FakeBackend.from_fixture(config.fake_fixture.expanduser())
-    raise ConfigError("backend: google is not available yet (Milestone 2, step 5)")
+    from broker.backends.google import open_google_backend  # imported only when used
+
+    return open_google_backend(config)
 
 
 @dataclass

@@ -97,7 +97,10 @@ def build_server(runtime: Runtime) -> Server[Any]:
 
     def handle(session: Session, tool: str, args: dict[str, Any]) -> Result:
         with gate_lock:
-            return runtime.gate.handle(session, tool, args)
+            try:
+                return runtime.gate.handle(session, tool, args)
+            except Exception:  # never echo exception text: it could carry content
+                return Result(False, Verdict.DENY, "internal error", error="internal_error")
 
     def session_for(ctx: ServerRequestContext[Any, Any]) -> Session:
         key = id(ctx.session)

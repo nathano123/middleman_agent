@@ -173,6 +173,39 @@ def approvals_action(queue: ApprovalQueue, action: str, item_id: str | None) -> 
     return 0
 
 
+def cmd_auth(config_path: Path) -> int:
+    """Run Google consent for the configured test account and keep the token in the keychain."""
+    from broker.backends.base import BackendError
+    from broker.backends.google import open_google_backend
+    from broker.google_auth import forget_credentials, run_consent, save_credentials
+
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if config.google_client_file is None:
+        print("error: set google_client_file in the config first", file=sys.stderr)
+        return 2
+    keys = KeyringKeyStore()
+    try:
+        save_credentials(keys, run_consent(config.google_client_file))
+        account = open_google_backend(config).self_addresses()
+    except BackendError as exc:
+        print(f"error: Google sign-in failed ({exc.code})", file=sys.stderr)
+        return 1
+    if config.own_address.lower() not in account:
+        forget_credentials(keys)
+        print(
+            "error: the account you authorized is not own_address in the config; "
+            "token discarded. Sign in with the test account.",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"authorized {config.own_address}; token stored in the OS keychain")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="broker", description="Agent Access Broker (v0)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -189,6 +222,8 @@ def build_parser() -> argparse.ArgumentParser:
     agents_add = agents_sub.add_parser("add", help="register a new agent label")
     agents_add.add_argument("label")
     agents_add.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    auth_cmd = sub.add_parser("auth", help="sign in to Google (test account) and store the token")
+    auth_cmd.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     serve_cmd = sub.add_parser("serve", help="run the MCP server (stdio) for one agent")
     serve_cmd.add_argument("--agent", required=True, help="label from `broker agents add`")
     serve_cmd.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
@@ -222,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_verify_log(args.path)
     if args.command == "taint":
         return cmd_taint_clear(args.config, args.agent)
+    if args.command == "auth":
+        return cmd_auth(args.config)
     if args.command == "serve":
         from broker.mcp_server import serve  # MCP imports only when serving
 

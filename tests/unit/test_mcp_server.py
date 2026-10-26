@@ -87,7 +87,7 @@ def test_read_and_list_never_return_removed_fields(tmp_path: Path) -> None:
     runtime = make_runtime(tmp_path)
     read = call(runtime, "read_message", {"message_id": "m_lunch"})
     assert set(read.structured_content["result"]) == {
-        "id", "sender", "subject", "date", "snippet", "body",
+        "id", "sender", "subject", "date", "snippet", "body", "bulk", "attachments",
     }  # fmt: skip
     assert "555" not in text(read)  # masked phone number
     events = call(runtime, "list_events", {})

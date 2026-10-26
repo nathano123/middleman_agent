@@ -18,7 +18,7 @@ from broker.approvals.base import (
     final_outcome,
 )
 from broker.audit import AuditLog, MetadataValue
-from broker.backends.base import Backend, BackendError
+from broker.backends.base import Backend, BackendError, Event
 from broker.config import BrokerConfig
 from broker.counters import Counters
 from broker.minimizer import minimize_events, minimize_message, minimize_search
@@ -212,6 +212,10 @@ def call_metadata(args: Args) -> dict[str, MetadataValue]:
     return {}
 
 
+def description_authors(event: Event) -> list[str]:
+    return event.description_authors or [event.organizer]
+
+
 def pending_data(approval_id: str) -> dict[str, str]:
     return {
         "status": "pending_approval",
@@ -352,11 +356,13 @@ class Gate:
             if message is None:
                 return None, "not_found"
             meta["auth_result"] = message.auth_result
+            meta["bulk"] = message.bulk
             taint_on_read_message(session, message)
             return minimize_message(message, redact=redact), None
         if isinstance(args, ListEventsArgs):
             events = b.list_events(args.calendar_id, args.limit)
-            taint_on_list_events(session, [e.organizer for e in events if e.description.strip()])
+            authors = [a for e in events if e.description.strip() for a in description_authors(e)]
+            taint_on_list_events(session, authors)
             return minimize_events(events), None
         if isinstance(args, DraftReplyArgs):
             message = b.get_message(args.message_id)

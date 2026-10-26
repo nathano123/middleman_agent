@@ -23,6 +23,15 @@ class Message:
     list_unsubscribe: str = ""  # List-Unsubscribe header: marks bulk mail
     precedence: str = ""  # Precedence header, e.g. "bulk" or "list"
     thread_id: str = ""
+    sender_header: str = ""  # raw Sender header (who actually sent, if not From)
+    cc: list[str] = field(default_factory=list[str])
+    attachments: list[tuple[str, int]] = field(default_factory=list[tuple[str, int]])  # name, size
+    rfc_message_id: str = ""  # Message-ID header, for In-Reply-To on drafts
+
+    @property
+    def bulk(self) -> bool:
+        """List-Unsubscribe present or Precedence bulk/list/junk."""
+        return bool(self.list_unsubscribe) or self.precedence.lower() in ("bulk", "list", "junk")
 
 
 @dataclass(frozen=True)
@@ -35,6 +44,8 @@ class Event:
     end: str
     description: str = ""
     attendees: list[str] = field(default_factory=list[str])
+    # Who could have written the description (organizer and creator). Empty means organizer.
+    description_authors: list[str] = field(default_factory=list[str])
 
 
 class BackendError(Exception):

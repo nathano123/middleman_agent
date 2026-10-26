@@ -21,6 +21,7 @@ def empty_day() -> dict[str, Any]:
         "prompts": 0,
         "approvals": {o.value: 0 for o in ApprovalOutcome},
         "watch_would_have": {v.value: 0 for v in Verdict},
+        "reconsents": 0,  # times Google refused the stored grant (testing mode: every 7 days)
     }
 
 
@@ -46,6 +47,11 @@ class Counters:
             row["approvals"][ApprovalOutcome(approval).value] += 1
         if would_have is not None:
             row["watch_would_have"][Verdict(would_have).value] += 1
+        self.save()
+
+    def record_reconsent(self, day: date) -> None:
+        row = self.days.setdefault(day.isoformat(), empty_day())
+        row["reconsents"] = row.get("reconsents", 0) + 1
         self.save()
 
     def save(self) -> None:
@@ -77,5 +83,6 @@ def weekly_report(counters: Counters, end: date) -> str:
         "decisions: " + ", ".join(f"{v.value} {total('decisions', v.value)}" for v in Verdict),
         "watch mode would have: "
         + ", ".join(f"{v.value} {total('watch_would_have', v.value)}" for v in Verdict),
+        f"Google re-consents needed: {sum(d.get('reconsents', 0) for d in window)}",
     ]
     return "\n".join(lines)

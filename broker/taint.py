@@ -53,6 +53,9 @@ def distrust(contacts: Contacts, message: Message) -> str | None:
     sender = normalize_address(message.sender)
     if reply_to and reply_to != sender and not contacts.is_known(reply_to):
         return "whose reply-to is an outside address"
+    actual = normalize_address(message.sender_header) if message.sender_header else ""
+    if actual and actual != sender and not contacts.is_known(actual):
+        return "whose Sender header is an outside address"
     return None
 
 

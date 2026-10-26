@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import shlex
 import shutil
 import sys
 from datetime import date
@@ -115,7 +116,7 @@ def setup_snippets(label: str, config_path: Path) -> str:
             json.dumps(desktop, indent=2),
             "",
             "Claude Code (stdio):",
-            f"  claude mcp add --transport stdio agent-broker-{label} -- {uv} {' '.join(args)}",
+            f"  claude mcp add --transport stdio agent-broker-{label} -- {shlex.join([uv, *args])}",
         ]
     )
 

@@ -13,6 +13,7 @@ from typing import Any
 
 from broker.approvals.base import ApprovalOutcome
 from broker.approvals.fake import FakeApprover
+from broker.approvals.history import MemoryApprovalHistory
 from broker.audit import AuditLog
 from broker.backends.base import Event, Message
 from broker.backends.fake import FakeBackend
@@ -127,6 +128,7 @@ class Runner:
         self.config = BrokerConfig(own_address=OWN, known_contacts=CONTACTS, profile=profile)
         self.contacts = Contacts(OWN, frozenset(), frozenset(CONTACTS))
         self.store = MemoryTaintStore(timedelta(hours=self.config.taint_quiet_hours))
+        self.history = MemoryApprovalHistory()
         self.clock = Clock(FIRST_DAY)
         self.log = AuditLog(Path(":memory:"))
 
@@ -147,7 +149,7 @@ class Runner:
 
     def _session(self, name: str, at: datetime) -> Session:
         self.clock.now = at
-        return Session(name, "default", self.contacts, self.store, self.clock)
+        return Session(name, "default", self.contacts, self.store, self.history, self.clock)
 
     def _morning(
         self, gate: Gate, stats: DayStats, at: datetime, approver: FakeApprover

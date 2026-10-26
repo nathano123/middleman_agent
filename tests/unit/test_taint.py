@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from broker.approvals.history import MemoryApprovalHistory
 from broker.backends.base import AuthResult, Message
 from broker.rules.evaluator import evaluate, load_profile
 from broker.rules.models import Action, Constraints, Verdict
@@ -47,7 +48,8 @@ def msg(
 
 
 def new_session(store: TaintStore | None = None, clock: FakeClock | None = None) -> Session:
-    return Session("s1", "default", CONTACTS, store or MemoryTaintStore(), clock or FakeClock())
+    store = store or MemoryTaintStore()
+    return Session("s1", "default", CONTACTS, store, MemoryApprovalHistory(), clock or FakeClock())
 
 
 # --- who is trusted ----------------------------------------------------------
@@ -136,8 +138,8 @@ def test_taint_shared_by_sessions_of_same_agent(tmp_path: Path, kind: int) -> No
     clock = FakeClock()
     first = new_session(store, clock)
     taint_on_read_message(first, msg("stranger@evil.test"))
-    second = Session("s2", "default", CONTACTS, store, clock)
-    other_agent = Session("s3", "mail-bot", CONTACTS, store, clock)
+    second = Session("s2", "default", CONTACTS, store, MemoryApprovalHistory(), clock)
+    other_agent = Session("s3", "mail-bot", CONTACTS, store, MemoryApprovalHistory(), clock)
     assert second.tainted
     assert not other_agent.tainted
 

@@ -20,6 +20,7 @@ from keyring.backend import KeyringBackend
 
 from broker.approvals.base import BODY_PREVIEW_CHARS, ApprovalOutcome, ApprovalRequest
 from broker.approvals.fake import FakeApprover
+from broker.approvals.history import MemoryApprovalHistory
 from broker.audit import AuditLog
 from broker.backends.fake import FakeBackend
 from broker.config import BrokerConfig, ProfileName
@@ -56,6 +57,7 @@ class World:
     log_path: Path
     config: BrokerConfig
     store: MemoryTaintStore
+    history: MemoryApprovalHistory
     clock: FakeClock
 
     def call(self, tool: str, **args: object) -> Result:
@@ -65,7 +67,7 @@ class World:
         """Simulate the same agent opening a new connection: a fresh Session, same agent id."""
         old = self.session
         self.session = Session(
-            f"{old.session_id}+", old.agent_id, old.contacts, self.store, self.clock
+            f"{old.session_id}+", old.agent_id, old.contacts, self.store, self.history, self.clock
         )
 
 
@@ -113,9 +115,10 @@ def build_world(
     )
     store = MemoryTaintStore(timedelta(hours=config.taint_quiet_hours))
     clock = FakeClock()
-    session = Session("sess-1", "default", contacts, store, clock)
+    history = MemoryApprovalHistory()
+    session = Session("sess-1", "default", contacts, store, history, clock)
     gate = Gate(load_profile(profile), backend, approver, log, config)
-    return World(gate, session, backend, approver, log, log_path, config, store, clock)
+    return World(gate, session, backend, approver, log, log_path, config, store, history, clock)
 
 
 def matches(req: ApprovalRequest, recipients: list[str], subject: str, body: str) -> bool:

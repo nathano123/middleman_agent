@@ -25,8 +25,9 @@ calls the mail/calendar backend (a test enforces this).
 3. **Approval.** For `ask`, the prompt is built only from the agent's own arguments and
    session counters: real recipients (outside and new ones flagged), subject, the first 200
    characters of the body, total length with a `[+N more characters not shown]` marker, a
-   short hash of the full body, and `approval #N this session`. If the session is tainted and
-   the body is over 2,000 characters, or after 10 prompts in one session, a plain Approve is
+   short hash of the full body, and `approval #N today`. If the agent is tainted and the
+   body is over 2,000 characters, or after 10 prompts by the same agent in one day (counted
+   per agent, so reconnecting does not reset it), a plain Approve is
    refused until the full body is opened. No answer, deny or timeout means no action.
 4. **Backend.** Currently `FakeBackend` (in-memory). The Google backend comes in Milestone 2.
 5. **Minimizer.** Returns only the fields each tool needs. Bodies are masked for emails,

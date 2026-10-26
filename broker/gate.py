@@ -151,7 +151,7 @@ def prompt_fields(args: Args) -> tuple[str, list[str], str, str]:
 def approval_request(
     session: Session, args: Args, decision: Decision, config: BrokerConfig
 ) -> ApprovalRequest:
-    """Built only from the agent's structured arguments and session counters.
+    """Built only from the agent's structured arguments and the agent's approval history.
 
     No Message or Event ever reaches this function; see tests/unit/test_prompt.py.
     """
@@ -159,7 +159,9 @@ def approval_request(
     reason = decision.reason
     if session.tainted:
         reason = f"{reason}; session tainted: {session.taint_reason}"
-    number = session.approvals + 1
+    day = session.today()
+    number = session.history.prompts(session.agent_id, day) + 1
+    approved_before = session.history.approved(session.agent_id, day)
     long_and_tainted = session.tainted and len(body) > config.full_view_body_chars
     return ApprovalRequest(
         session_id=session.session_id,
@@ -173,7 +175,7 @@ def approval_request(
         body_sha256=hashlib.sha256(body.encode("utf-8")).hexdigest()[:12],
         approval_number=number,
         outside_recipients=[r for r in recipients if not session.is_known(r)],
-        new_recipients=[r for r in recipients if r not in session.approved_recipients],
+        new_recipients=[r for r in recipients if r not in approved_before],
         requires_full_view=long_and_tainted or number > config.full_view_after_approvals,
         full_body=body,
     )
@@ -276,10 +278,11 @@ class Gate:
 
     def _ask(self, session: Session, args: Args, decision: Decision) -> ApprovalOutcome:
         req = approval_request(session, args, decision, self.config)
-        session.approvals = req.approval_number
+        day = session.today()
+        session.history.record_prompt(session.agent_id, day)
         outcome = final_outcome(req, self.approver.request(req))
         if outcome == ApprovalOutcome.APPROVED:
-            session.approved_recipients.update(req.recipients)
+            session.history.add_approved(session.agent_id, day, req.recipients)
         return outcome
 
     def _run(

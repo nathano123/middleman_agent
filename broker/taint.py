@@ -11,11 +11,12 @@ when the user clears it with `broker taint clear`. Within one Session it never c
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from email.utils import parseaddr
 from pathlib import Path
 from typing import Protocol
 
+from broker.approvals.history import ApprovalHistory
 from broker.backends.base import Message
 
 
@@ -155,9 +156,8 @@ class Session:
     agent_id: str
     contacts: Contacts
     store: TaintStore
+    history: ApprovalHistory  # prompt count and approved recipients, per agent per day
     clock: Callable[[], datetime] = utc_now
-    approvals: int = 0  # approval prompts shown in this session
-    approved_recipients: set[str] = field(default_factory=set[str])
     _held: TaintRecord | None = field(default=None, repr=False)
 
     def _current(self) -> TaintRecord | None:
@@ -177,6 +177,9 @@ class Session:
 
     def is_known(self, raw_address: str) -> bool:
         return self.contacts.is_known(raw_address)
+
+    def today(self) -> date:
+        return self.clock().date()
 
     def mark_tainted(self, reason: str) -> None:
         self.store.mark(self.agent_id, reason, self.clock())

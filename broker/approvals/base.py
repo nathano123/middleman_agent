@@ -32,9 +32,9 @@ class ApprovalRequest:
     body_length: int = 0  # total characters in the body / description
     more_chars: int = 0  # characters not shown in body_preview
     body_sha256: str = ""  # short hash of the full body, to recognise repeats
-    approval_number: int = 0  # 1-based count of prompts in this session, this one included
+    approval_number: int = 0  # 1-based count of this agent's prompts today, this one included
     outside_recipients: list[str] = field(default_factory=list[str])
-    new_recipients: list[str] = field(default_factory=list[str])  # not approved before
+    new_recipients: list[str] = field(default_factory=list[str])  # not approved today
     requires_full_view: bool = False  # plain Approve is not enough
     full_body: str = ""  # shown only when the user opens the full view
 
@@ -55,12 +55,12 @@ def final_outcome(req: ApprovalRequest, response: ApprovalResponse) -> ApprovalO
 
 def render_prompt(req: ApprovalRequest) -> str:
     """The text a phone notification shows. Every line comes from the request fields."""
-    lines = [f"{req.tool} (approval #{req.approval_number} this session)"]
+    lines = [f"{req.tool} (approval #{req.approval_number} today)"]
     lines.append(f"To: {', '.join(req.recipients) or '(nobody)'}")
     if req.outside_recipients:
         lines.append(f"OUTSIDE: {', '.join(req.outside_recipients)}")
     if req.new_recipients:
-        lines.append(f"NEW this session: {', '.join(req.new_recipients)}")
+        lines.append(f"NEW today: {', '.join(req.new_recipients)}")
     lines.append(f"Subject: {req.subject}")
     lines.append(f"Body: {req.body_length} chars, sha256 {req.body_sha256}")
     lines.append(req.body_preview)

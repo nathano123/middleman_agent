@@ -84,3 +84,14 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 - Checked with `--runxfail` that each test fails on its target assertion, not on an incidental error.
 - The approval-count test (25) uses a hijacked flow that the fake approver approves 30 times; the bad send is approved without opening the body, which must be refused.
 - Commits from now on use the GitHub noreply address (`48062641+nathano123@users.noreply.github.com`). Earlier commits carry the owner's university address; history was left as is by the owner's choice (it is already public).
+
+## 2026-10-27 License, CI, pre-commit, history check
+- License: Apache-2.0, confirmed by the owner on 2026-10-27. Why: explicit patent grant and patent-retaliation clause, permissive enough for an open-core model where a paid layer sits on top. Text taken verbatim from GitHub's license API (`gh api /licenses/apache-2.0`); the appendix placeholders are left as is. Rejected: MIT (no patent grant), AGPL (would push away the integrators an open core needs).
+- CI (`.github/workflows/ci.yml`): `actions/checkout@v7.0.1`, `astral-sh/setup-uv@v10.3.2` (inputs `version`, `python-version` checked against its `action.yml` at that tag), uv 0.13.5, Python 3.12, `uv sync --locked`, then ruff check, ruff format --check, pyright, pytest. Read-only token permissions.
+- Pre-commit: `astral-sh/ruff-pre-commit` v0.17.2 (`ruff-check`, `ruff-format`; ids checked in its hooks file), plus local `uv run pyright` and `uv run pytest -q`.
+- History check (2026-10-27), over every commit's patch and metadata:
+  - Email addresses not ending in `.test`: only `nathan.orlowski@post.runi.ac.il` (author line of the first 9 commits; not in any file), the new noreply address, `noreply@anthropic.com` (co-author trailer), and `@pytest` false hits.
+  - The owner's surname appears only in those 9 author lines; `git grep` finds it in no tracked file.
+  - Token patterns searched: `gho_`, `ghp_`, `github_pat_`, `AIza…`, `ya29.`, `sk-…`, `-----BEGIN`, `client_secret`, `refresh_token`. Only hit: the `.gitignore` line `client_secret*.json`.
+  - Fixture domains are all `.test` (apparent short domains are 90-character snippet cuts); the only URL is `https://evil.test/join`.
+  - Every file ever added is source, config, docs or the JSON fixture.

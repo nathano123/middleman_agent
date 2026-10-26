@@ -131,3 +131,93 @@ def test_no_message_content_is_written(tmp_path: Path) -> None:
     raw = path.read_bytes()
     assert body.encode() not in raw
     assert b"IBAN" not in raw
+
+
+# --- keyed chain with a head anchor (keychain) -------------------------------
+
+
+class DictKeys:
+    def __init__(self) -> None:
+        self.values: dict[str, str] = {}
+
+    def get(self, name: str) -> str | None:
+        return self.values.get(name)
+
+    def set(self, name: str, value: str) -> None:
+        self.values[name] = value
+
+
+def make_keyed_log(tmp_path: Path, keys: DictKeys, rows: int = 5) -> Path:
+    path = tmp_path / "keyed.db"
+    log = AuditLog(path, keys)
+    for i in range(rows):
+        log.append("s1", "search_mail", "allow", "r", {"result_count": i})
+    log.close()
+    return path
+
+
+def test_keyed_chain_verifies(tmp_path: Path) -> None:
+    keys = DictKeys()
+    assert verify(make_keyed_log(tmp_path, keys), keys) is None
+
+
+def test_keyed_chain_detects_tail_truncation(tmp_path: Path) -> None:
+    keys = DictKeys()
+    path = make_keyed_log(tmp_path, keys)
+    run_sql(path, "DELETE FROM log WHERE id >= 4")
+    assert verify(path, keys) == 5
+
+
+def test_keyed_chain_detects_rewrite_without_the_key(tmp_path: Path) -> None:
+    """An attacker recomputes every hash (plain SHA-256 or a guessed key): row 1 fails."""
+    from broker.audit import GENESIS_HASH, row_hash
+
+    keys = DictKeys()
+    path = make_keyed_log(tmp_path, keys)
+    for guess in (None, b"wrong-key"):
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        prev = GENESIS_HASH
+        for found in conn.execute("SELECT * FROM log ORDER BY id").fetchall():
+            row = dict(found)
+            row["decision"], row["prev_hash"] = "deny", prev
+            prev = row_hash(row, guess)
+            conn.execute(
+                "UPDATE log SET decision = ?, prev_hash = ?, hash = ? WHERE id = ?",
+                ("deny", row["prev_hash"], prev, row["id"]),
+            )
+        conn.commit()
+        conn.close()
+        assert verify(path) is None or guess is not None  # plain check is fooled
+        assert verify(path, keys) == 1
+
+
+def test_keyed_verify_without_key_refuses(tmp_path: Path) -> None:
+    path = make_keyed_log(tmp_path, DictKeys())
+    with pytest.raises(AuditError):
+        verify(path, DictKeys())
+
+
+def test_cli_uses_keychain_and_reports_truncation(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from broker.audit import KeyringKeyStore
+    from broker.cli import main
+
+    path = tmp_path / "audit.db"
+    log = AuditLog(path, KeyringKeyStore())  # the autouse fixture makes this an in-memory keyring
+    for _ in range(3):
+        log.append("s1", "search_mail", "allow", "r", {})
+    log.close()
+    assert main(["verify-log", str(path)]) == 0
+    assert "HMAC chain" in capsys.readouterr().out
+    run_sql(path, "DELETE FROM log WHERE id = 3")
+    assert main(["verify-log", str(path)]) == 1
+
+
+def test_tests_never_touch_the_real_keychain() -> None:
+    import keyring
+
+    from tests.conftest import MemoryKeyring
+
+    assert isinstance(keyring.get_keyring(), MemoryKeyring)

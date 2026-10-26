@@ -5,7 +5,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from broker.audit import AuditError, AuditLog, verify
+from broker.audit import AuditError, AuditLog, KeyringKeyStore, verify
 from broker.config import DEFAULT_AGENT, DEFAULT_CONFIG_PATH, ConfigError, load_config
 from broker.counters import Counters, weekly_report
 from broker.rules.evaluator import PROFILE_NAMES, ProfileError, load_profile
@@ -14,14 +14,20 @@ from broker.taint import SQLiteTaintStore
 
 
 def cmd_verify_log(path: Path) -> int:
+    keys = KeyringKeyStore()
+    keyed = keys.get("audit-hmac-key") is not None
     try:
-        bad = verify(path)
+        bad = verify(path, keys if keyed else None)
     except AuditError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     if bad is None:
         print(f"ok: chain intact in {path}")
-        print("note: rows removed from the end of the log cannot be detected by the chain alone")
+        if keyed:
+            print("checked: HMAC chain and newest-row anchor from the OS keychain")
+        else:
+            print("warning: no key in the OS keychain; checked as a plain hash chain, which")
+            print("cannot detect a rewritten chain or rows removed from the end")
         return 0
     print(f"TAMPERED: first bad row id {bad} in {path}")
     return 1
@@ -50,7 +56,7 @@ def cmd_taint_clear(config_path: Path, agent_id: str) -> int:
     store = SQLiteTaintStore(config.state_path("taint.db"))
     cleared = store.clear(agent_id)
     store.close()
-    log = AuditLog(config.state_path("audit.db"))
+    log = AuditLog(config.state_path("audit.db"), KeyringKeyStore())
     reason = "taint cleared by user" if cleared else "taint clear requested; agent was clean"
     log.append("cli", "taint_clear", "allow", reason, {"agent_id": agent_id[:64]})
     log.close()

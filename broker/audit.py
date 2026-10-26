@@ -10,10 +10,15 @@ caller cannot write a subject, body, snippet or description into the log by acci
 """
 
 import hashlib
+import hmac
 import json
+import secrets
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
+
+import keyring
 
 GENESIS_HASH = "0" * 64
 MAX_METADATA_STRING = 128
@@ -73,16 +78,55 @@ def check_metadata(metadata: dict[str, MetadataValue]) -> None:
                 raise AuditError(f"metadata value for {key!r} is too long for the log")
 
 
-def row_hash(row: dict[str, object]) -> str:
-    """SHA-256 over the row's fields (prev_hash included), as sorted compact JSON."""
+def row_hash(row: dict[str, object], key: bytes | None = None) -> str:
+    """SHA-256 (or HMAC-SHA-256 with a key) over the row's fields, as sorted compact JSON."""
     payload = {name: row[name] for name in ROW_FIELDS}
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    if key is None:
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return hmac.new(key, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+# --- keys and head anchor, kept outside the log file (OS keychain) -----------
+
+
+class KeyStore(Protocol):
+    def get(self, name: str) -> str | None: ...
+
+    def set(self, name: str, value: str) -> None: ...
+
+
+class KeyringKeyStore:
+    """OS keychain via `keyring` (25.x: get_password/set_password(service, username))."""
+
+    service = "agent-broker"
+
+    def get(self, name: str) -> str | None:
+        return keyring.get_password(self.service, name)
+
+    def set(self, name: str, value: str) -> None:
+        keyring.set_password(self.service, name, value)
+
+
+def log_key(keys: KeyStore, create: bool) -> bytes | None:
+    found = keys.get("audit-hmac-key")
+    if found is None and create:
+        found = secrets.token_hex(32)
+        keys.set("audit-hmac-key", found)
+    return bytes.fromhex(found) if found else None
+
+
+def anchor_name(path: Path) -> str:
+    """Keychain entry holding the newest row's "id:hash" for this log file."""
+    digest = hashlib.sha256(str(path.expanduser().resolve()).encode()).hexdigest()[:16]
+    return f"audit-head-{digest}"
 
 
 class AuditLog:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, keys: KeyStore | None = None) -> None:
         self.path = path
+        self.keys = keys
+        self._key = log_key(keys, create=True) if keys else None
         self._conn = sqlite3.connect(path)
         self._conn.execute(SCHEMA)
         self._conn.commit()
@@ -115,18 +159,27 @@ class AuditLog:
             "metadata": json.dumps(metadata, sort_keys=True, ensure_ascii=False),
             "prev_hash": last_hash,
         }
-        row["hash"] = row_hash(row)
+        row["hash"] = row_hash(row, self._key)
         columns = ", ".join(row)
         marks = ", ".join("?" for _ in row)
         self._conn.execute(f"INSERT INTO log ({columns}) VALUES ({marks})", tuple(row.values()))
         self._conn.commit()
+        if self.keys is not None:
+            self.keys.set(anchor_name(self.path), f"{last_id + 1}:{row['hash']}")
         return last_id + 1
 
 
-def verify(path: Path) -> int | None:
-    """Return the id of the first row that breaks the chain, or None if the chain is intact."""
+def verify(path: Path, keys: KeyStore | None = None) -> int | None:
+    """Return the id of the first row that breaks the chain, or None if the chain is intact.
+
+    With `keys`, rows are checked as HMACs and the newest row must match the head anchor in
+    the key store; a missing newest row is reported as the anchored id.
+    """
     if not path.exists():
         raise AuditError(f"no log at {path}")
+    key = log_key(keys, create=False) if keys else None
+    if keys is not None and key is None:
+        raise AuditError("no audit key in the key store")
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
@@ -134,9 +187,14 @@ def verify(path: Path) -> int | None:
     finally:
         conn.close()
     expected_prev = GENESIS_HASH
+    last_id = 0
     for found in rows:
         row: dict[str, object] = dict(found)
-        if row["prev_hash"] != expected_prev or row_hash(row) != row["hash"]:
+        if row["prev_hash"] != expected_prev or row_hash(row, key) != row["hash"]:
             return int(str(row["id"]))
         expected_prev = str(row["hash"])
+        last_id = int(str(row["id"]))
+    head = keys.get(anchor_name(path)) if keys else None
+    if head is not None and head != f"{last_id}:{expected_prev}":
+        return int(head.split(":", 1)[0]) if last_id < int(head.split(":", 1)[0]) else last_id
     return None

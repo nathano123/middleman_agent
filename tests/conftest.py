@@ -14,7 +14,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
+import keyring
 import pytest
+from keyring.backend import KeyringBackend
 
 from broker.approvals.base import BODY_PREVIEW_CHARS, ApprovalOutcome, ApprovalRequest
 from broker.approvals.fake import FakeApprover
@@ -194,3 +196,31 @@ def world(tmp_path: Path) -> Iterator[WorldFactory]:
     for w in built:
         w.log.close()
         check_invariants(w)
+
+
+class MemoryKeyring(KeyringBackend):
+    """In-memory keyring so no test ever reads or writes the real OS keychain."""
+
+    priority = 1  # pyright: ignore[reportAssignmentType, reportIncompatibleMethodOverride]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entries: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service: str, username: str) -> str | None:
+        return self.entries.get((service, username))
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        self.entries[(service, username)] = password
+
+    def delete_password(self, service: str, username: str) -> None:
+        self.entries.pop((service, username), None)
+
+
+@pytest.fixture(autouse=True)
+def no_real_keychain() -> Iterator[MemoryKeyring]:
+    previous = keyring.get_keyring()
+    fake = MemoryKeyring()
+    keyring.set_keyring(fake)
+    yield fake
+    keyring.set_keyring(previous)

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from broker.audit import verify
+from broker.audit import KeyringKeyStore, verify
 from broker.cli import main
 from broker.config import BrokerConfig, ConfigError, load_config
 from broker.taint import SQLiteTaintStore
@@ -63,7 +63,7 @@ def test_cli_taint_clear_clears_and_logs(
     assert main(["taint", "clear", "--config", str(config_path)]) == 0
     assert "taint cleared" in capsys.readouterr().out
     assert SQLiteTaintStore(tmp_path / "taint.db").get("default", START) is None
-    assert verify(tmp_path / "audit.db") is None
+    assert verify(tmp_path / "audit.db", KeyringKeyStore()) is None
     import sqlite3
 
     conn = sqlite3.connect(tmp_path / "audit.db")

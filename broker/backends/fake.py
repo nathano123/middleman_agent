@@ -5,7 +5,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from broker.backends.base import Event, Message
+from broker.backends.base import (
+    Event,
+    Message,
+    check_approved,
+    event_action_hash,
+    mail_action_hash,
+)
 
 
 @dataclass(frozen=True)
@@ -57,7 +63,10 @@ class FakeBackend:
         self.drafts.append(draft)
         return draft.id
 
-    def send_message(self, to: list[str], cc: list[str], subject: str, body: str) -> str:
+    def send_message(
+        self, to: list[str], cc: list[str], subject: str, body: str, approved_hash: str | None
+    ) -> str:
+        check_approved(approved_hash, mail_action_hash(to, cc, subject, body))
         mail = SentMail(f"s{len(self.sent) + 1}", list(to), list(cc), subject, body)
         self.sent.append(mail)
         return mail.id
@@ -70,7 +79,10 @@ class FakeBackend:
         end: str,
         attendees: list[str],
         description: str,
+        approved_hash: str | None,
     ) -> str:
+        actual = event_action_hash(calendar_id, title, start, end, attendees, description)
+        check_approved(approved_hash, actual)
         event_id = f"new{len(self.created_events) + 1}"
         event = Event(event_id, calendar_id, "", title, start, end, description, list(attendees))
         self.created_events.append(event)

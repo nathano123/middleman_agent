@@ -1,17 +1,19 @@
-"""Command line: verify-log, profiles, taint clear, simulate, report."""
+"""Command line: verify-log, profiles, taint clear, agents, approvals, simulate, report."""
 
 import argparse
 import sys
 from datetime import date
 from pathlib import Path
 
+from broker.approvals.base import render_prompt
+from broker.approvals.queue import ApprovalQueue, QueueError
 from broker.audit import AuditError, AuditLog, KeyringKeyStore, verify
 from broker.config import DEFAULT_CONFIG_PATH, ConfigError, add_agent, load_config
 from broker.counters import Counters, weekly_report
 from broker.files import private_dir
 from broker.rules.evaluator import PROFILE_NAMES, ProfileError, load_profile
 from broker.sim import format_table, simulate
-from broker.taint import SQLiteTaintStore
+from broker.taint import SQLiteTaintStore, utc_now
 
 
 def cmd_verify_log(path: Path) -> int:
@@ -97,6 +99,59 @@ def cmd_agents_add(config_path: Path, label: str) -> int:
     return 0
 
 
+DEV_WARNING = (
+    "WARNING - DEVELOPMENT ONLY: any program running as you, including an AI agent with a "
+    "shell (e.g. Claude Code), can run this command and approve its own requests. Use it "
+    "only on a test account. Approvals the agent cannot reach arrive in Milestone 3."
+)
+
+
+def cmd_approvals(config_path: Path, action: str, item_id: str | None) -> int:
+    print(DEV_WARNING, file=sys.stderr)
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    queue = ApprovalQueue(config.state_path("approvals.db"))
+    try:
+        return approvals_action(queue, action, item_id)
+    except QueueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        queue.close()
+
+
+def approvals_action(queue: ApprovalQueue, action: str, item_id: str | None) -> int:
+    now = utc_now()
+    if action == "list":
+        items = queue.pending(now)
+        for item in items:
+            age = int((now - item.created_at).total_seconds())
+            print(f"--- {item.id} (agent {item.agent_id}, {age}s old)")
+            if item.request is not None:
+                print(render_prompt(item.request))
+        print(f"{len(items)} pending")
+        return 0
+    assert item_id is not None
+    item = queue.get(item_id)
+    if action == "show":
+        item = queue.mark_viewed(item_id)
+        if item.request is not None:
+            print(render_prompt(item.request))
+            print("----- full body -----")
+            print(item.request.full_body)
+        return 0
+    needs_view = item.request is not None and item.request.requires_full_view
+    if action == "approve" and needs_view and not item.viewed:
+        print(f"refused: open the full body first: broker approvals show {item_id}")
+        return 1
+    decided = queue.decide(item_id, approve=action == "approve", now=now)
+    print(f"{item_id}: {decided.status}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="broker", description="Agent Access Broker (v0)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -113,6 +168,20 @@ def build_parser() -> argparse.ArgumentParser:
     agents_add = agents_sub.add_parser("add", help="register a new agent label")
     agents_add.add_argument("label")
     agents_add.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    approvals = sub.add_parser(
+        "approvals", help="answer pending approvals (DEVELOPMENT ONLY)", description=DEV_WARNING
+    )
+    approvals_sub = approvals.add_subparsers(dest="approvals_command", required=True)
+    for name, text in (
+        ("list", "show pending requests"),
+        ("show", "show one request with its full body (counts as opening it)"),
+        ("approve", "approve a request"),
+        ("deny", "deny a request"),
+    ):
+        cmd = approvals_sub.add_parser(name, help=text, description=DEV_WARNING)
+        if name != "list":
+            cmd.add_argument("id")
+        cmd.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     sim = sub.add_parser("simulate", help="replay fake workdays and count prompts")
     sim.add_argument("--profile", choices=[*PROFILE_NAMES, "all"], default="working")
     sim.add_argument("--days", type=int, default=7)
@@ -129,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_verify_log(args.path)
     if args.command == "taint":
         return cmd_taint_clear(args.config, args.agent)
+    if args.command == "approvals":
+        return cmd_approvals(args.config, args.approvals_command, getattr(args, "id", None))
     if args.command == "agents":
         return cmd_agents_add(args.config, args.label)
     if args.command == "simulate":

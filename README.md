@@ -46,6 +46,20 @@ always denied.
 Profiles: `cautious` (asks more, denies tainted sends), `working` (default), `autonomous`
 (asks less; never lets a tainted agent send or create events without approval).
 
+## Approvals in Milestone 2: development only
+
+> **WARNING - `broker approvals` is for development only.** Any program running as you,
+> including an AI agent with a shell (for example Claude Code), can run
+> `broker approvals approve <id>` and approve its own requests. Use it only with a test
+> account. The real fix is an approval channel the agent cannot reach (phone approvals,
+> Milestone 3). See THREAT_MODEL.md.
+
+A tool call that needs approval waits about 45 seconds. If nobody has answered by then, it
+returns `pending_approval` with an id, and the agent repeats the identical call to get the
+answer (Claude Desktop is reported to cancel tool calls after about 60 seconds). Requests
+expire after 5 minutes. `broker approvals list | show <id> | approve <id> | deny <id>`;
+`show` counts as opening the full body.
+
 ## Prompt budget (simulation)
 
 `broker simulate --profile all --days 7` replays a generated workday (60 mails, 6 events, a

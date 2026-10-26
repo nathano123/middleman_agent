@@ -20,4 +20,4 @@ class FakeApprover:
         answer = self.script.pop(0) if self.script else self.default
         self.answers.append(answer)
         self.viewed.append(self.views_full_body)
-        return ApprovalResponse(answer, viewed_full_body=self.views_full_body)
+        return ApprovalResponse(answer, viewed_full_body=self.views_full_body, new_prompt=True)

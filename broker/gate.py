@@ -14,10 +14,11 @@ from broker.approvals.base import (
     ApprovalOutcome,
     ApprovalRequest,
     Approver,
+    action_hash,
     final_outcome,
 )
 from broker.audit import AuditLog, MetadataValue
-from broker.backends.base import Backend
+from broker.backends.base import Backend, BackendError
 from broker.config import BrokerConfig
 from broker.counters import Counters
 from broker.minimizer import minimize_events, minimize_message, minimize_search
@@ -136,16 +137,25 @@ def constraints_for(session: Session, args: Args) -> Constraints:
     )
 
 
-def prompt_fields(args: Args) -> tuple[str, list[str], str, str]:
-    """(tool, recipients, subject, body) taken from the agent's own arguments."""
+PromptFields = tuple[str, list[str], str, str, dict[str, str]]
+
+
+def prompt_fields(args: Args) -> PromptFields:
+    """(tool, recipients, subject, body, details) taken from the agent's own arguments."""
     if isinstance(args, SendMailArgs):
-        return "send_mail", addresses(args.to + args.cc), args.subject, args.body
+        return "send_mail", addresses(args.to + args.cc), args.subject, args.body, {}
     if isinstance(args, CreateEventArgs):
-        return "create_event", addresses(args.attendees), args.title, args.description
+        details = {"calendar": args.calendar_id, "start": args.start, "end": args.end}
+        return "create_event", addresses(args.attendees), args.title, args.description, details
     if isinstance(args, DraftReplyArgs):
         # The draft's recipient comes from the stored message, so it is not shown here.
-        return "draft_reply", [], f"draft reply to message {args.message_id}", args.body
+        subject = f"draft reply to message {args.message_id}"
+        return "draft_reply", [], subject, args.body, {}
     raise ValueError(f"no approval prompt defined for {type(args).__name__}")
+
+
+def sends_invitations(args: Args) -> bool:
+    return isinstance(args, CreateEventArgs) and bool(args.attendees)
 
 
 def approval_request(
@@ -155,7 +165,8 @@ def approval_request(
 
     No Message or Event ever reaches this function; see tests/unit/test_prompt.py.
     """
-    tool, recipients, subject, body = prompt_fields(args)
+    tool, recipients, subject, body, details = prompt_fields(args)
+    invites = sends_invitations(args)
     reason = decision.reason
     if session.tainted:
         reason = f"{reason}; session tainted: {session.taint_reason}"
@@ -178,6 +189,9 @@ def approval_request(
         new_recipients=[r for r in recipients if r not in approved_before],
         requires_full_view=long_and_tainted or number > config.full_view_after_approvals,
         full_body=body,
+        sends_invitations=invites,
+        details=details,
+        action_hash=action_hash(tool, recipients, subject, body, invites, details),
     )
 
 
@@ -195,6 +209,14 @@ def call_metadata(args: Args) -> dict[str, MetadataValue]:
             "attendee_domains": domains(args.attendees),
         }
     return {}
+
+
+def pending_data(approval_id: str) -> dict[str, str]:
+    return {
+        "status": "pending_approval",
+        "approval_id": approval_id,
+        "next_step": "Call the same tool again with exactly the same arguments to get the answer.",
+    }
 
 
 # --- the gate ----------------------------------------------------------------
@@ -245,14 +267,16 @@ class Gate:
         if decision.verdict == Verdict.DENY:
             return self._finish(session, tool, Result(False, Verdict.DENY, decision.reason), meta)
         approval: ApprovalOutcome | None = None
+        approved_hash: str | None = None
         if decision.verdict == Verdict.ASK:
-            approval = self._ask(session, args, decision)
+            approval, approval_id, approved_hash = self._ask(session, args, decision)
             meta["approval"] = approval.value
             if approval != ApprovalOutcome.APPROVED:
-                denied = Result(False, Verdict.ASK, decision.reason, approval=approval)
+                data = pending_data(approval_id) if approval == ApprovalOutcome.PENDING else None
+                denied = Result(False, Verdict.ASK, decision.reason, data, approval=approval)
                 return self._finish(session, tool, denied, meta)
         redact = decision.verdict == Verdict.ALLOW_REDACTED
-        data, error = self._run(session, args, redact, meta)
+        data, error = self._run(session, args, redact, meta, approved_hash)
         if error:
             meta["error"] = error
         result = Result(error is None, decision.verdict, decision.reason, data, approval)
@@ -269,24 +293,48 @@ class Gate:
         """Trial days 1-3: log what enforce mode would have done, then run the call anyway."""
         meta["would_have"] = decision.verdict.value
         redact = decision.verdict == Verdict.ALLOW_REDACTED
-        data, error = self._run(session, args, redact, meta)
+        data, error = self._run(session, args, redact, meta, None)
         if error:
             meta["error"] = error
         reason = f"watch mode; would have {decision.verdict.value}: {decision.reason}"
         result = Result(error is None, Verdict.ALLOW, reason, data, would_have=decision.verdict)
         return self._finish(session, tool, result, meta)
 
-    def _ask(self, session: Session, args: Args, decision: Decision) -> ApprovalOutcome:
+    def _ask(
+        self, session: Session, args: Args, decision: Decision
+    ) -> tuple[ApprovalOutcome, str, str]:
+        """Returns (outcome, approval id, approved action hash)."""
         req = approval_request(session, args, decision, self.config)
         day = session.today()
-        session.history.record_prompt(session.agent_id, day)
-        outcome = final_outcome(req, self.approver.request(req))
+        response = self.approver.request(req)
+        if response.new_prompt:  # a retry of a queued request is not a new prompt
+            session.history.record_prompt(session.agent_id, day)
+        outcome = final_outcome(req, response)
         if outcome == ApprovalOutcome.APPROVED:
             session.history.add_approved(session.agent_id, day, req.recipients)
-        return outcome
+        return outcome, response.approval_id, req.action_hash
 
     def _run(
-        self, session: Session, args: Args, redact: bool, meta: dict[str, MetadataValue]
+        self,
+        session: Session,
+        args: Args,
+        redact: bool,
+        meta: dict[str, MetadataValue],
+        approved_hash: str | None,
+    ) -> tuple[Any, str | None]:
+        """Call the backend; backend errors become a content-free error code."""
+        try:
+            return self._call_backend(session, args, redact, meta, approved_hash)
+        except BackendError as exc:
+            return None, exc.code
+
+    def _call_backend(
+        self,
+        session: Session,
+        args: Args,
+        redact: bool,
+        meta: dict[str, MetadataValue],
+        approved_hash: str | None,
     ) -> tuple[Any, str | None]:
         """Call the backend and minimize. Applies taint after reads. Returns (data, error)."""
         b = self.backend
@@ -313,10 +361,17 @@ class Gate:
             draft_id = b.create_draft([to], f"Re: {message.subject}", args.body, message.id)
             return {"draft_id": draft_id, "to": [to]}, None
         if isinstance(args, SendMailArgs):
-            return {"sent_id": b.send_message(args.to, args.cc, args.subject, args.body)}, None
+            sent = b.send_message(args.to, args.cc, args.subject, args.body, approved_hash)
+            return {"sent_id": sent}, None
         if isinstance(args, CreateEventArgs):
             event_id = b.create_event(
-                args.calendar_id, args.title, args.start, args.end, args.attendees, args.description
+                args.calendar_id,
+                args.title,
+                args.start,
+                args.end,
+                args.attendees,
+                args.description,
+                approved_hash,
             )
             return {"event_id": event_id}, None
         raise ValueError(f"no runner for {type(args).__name__}")

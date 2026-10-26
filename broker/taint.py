@@ -12,19 +12,12 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from email.utils import parseaddr
 from pathlib import Path
 from typing import Protocol
 
 from broker.approvals.history import ApprovalHistory
-from broker.backends.base import Message
+from broker.backends.base import Message, normalize_address
 from broker.files import private_file
-
-
-def normalize_address(raw: str) -> str:
-    """Return the bare lowercased address. Display names are dropped and never trusted."""
-    _name, address = parseaddr(raw)
-    return address.strip().lower()
 
 
 def utc_now() -> datetime:

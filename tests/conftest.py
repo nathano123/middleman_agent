@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -85,6 +86,7 @@ def build_world(
     default: ApprovalOutcome = ApprovalOutcome.DENIED,
     self_addresses: list[str] | None = None,
     views_full_body: bool = False,
+    mode: Literal["enforce", "watch"] = "enforce",
 ) -> World:
     backend = FakeBackend.from_fixture(FIXTURE)
     if messages is not None:
@@ -101,6 +103,7 @@ def build_world(
         self_addresses=tuple(self_addresses or ()),
         known_contacts=tuple(sorted(KNOWN_CONTACTS)),
         profile=profile,
+        mode=mode,
         state_dir=tmp_path,
     )
     contacts = Contacts(
@@ -171,9 +174,18 @@ def world(tmp_path: Path) -> Iterator[WorldFactory]:
         default: ApprovalOutcome = ApprovalOutcome.DENIED,
         self_addresses: list[str] | None = None,
         views_full_body: bool = False,
+        mode: Literal["enforce", "watch"] = "enforce",
     ) -> World:
         w = build_world(
-            tmp_path, profile, messages, events, script, default, self_addresses, views_full_body
+            tmp_path,
+            profile,
+            messages,
+            events,
+            script,
+            default,
+            self_addresses,
+            views_full_body,
+            mode,
         )
         built.append(w)
         return w

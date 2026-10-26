@@ -1,11 +1,13 @@
-"""Command line: verify-log, profiles, taint clear, simulate."""
+"""Command line: verify-log, profiles, taint clear, simulate, report."""
 
 import argparse
 import sys
+from datetime import date
 from pathlib import Path
 
 from broker.audit import AuditError, AuditLog, verify
 from broker.config import DEFAULT_AGENT, DEFAULT_CONFIG_PATH, ConfigError, load_config
+from broker.counters import Counters, weekly_report
 from broker.rules.evaluator import PROFILE_NAMES, ProfileError, load_profile
 from broker.sim import format_table, simulate
 from broker.taint import SQLiteTaintStore
@@ -65,6 +67,16 @@ def cmd_simulate(profile: str, days: int, seed: int) -> int:
     return 0
 
 
+def cmd_report(config_path: Path, end: date) -> int:
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(weekly_report(Counters(config.state_path("counters.json")), end))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="broker", description="Agent Access Broker (v0)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -80,6 +92,9 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument("--profile", choices=[*PROFILE_NAMES, "all"], default="working")
     sim.add_argument("--days", type=int, default=7)
     sim.add_argument("--seed", type=int, default=7)
+    report = sub.add_parser("report", help="print the weekly usage summary (counts only)")
+    report.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    report.add_argument("--end", type=date.fromisoformat, default=date.today())
     return parser
 
 
@@ -91,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_taint_clear(args.config, args.agent)
     if args.command == "simulate":
         return cmd_simulate(args.profile, args.days, args.seed)
+    if args.command == "report":
+        return cmd_report(args.config, args.end)
     return cmd_profiles()
 
 

@@ -19,6 +19,7 @@ from broker.approvals.base import (
 from broker.audit import AuditLog, MetadataValue
 from broker.backends.base import Backend
 from broker.config import BrokerConfig
+from broker.counters import Counters
 from broker.minimizer import minimize_events, minimize_message, minimize_search
 from broker.rules.evaluator import evaluate
 from broker.rules.models import Action, Constraints, Decision, Profile, Resource, Verdict
@@ -100,6 +101,7 @@ class Result:
     reason: str
     data: Any = None
     approval: ApprovalOutcome | None = None
+    would_have: Verdict | None = None  # watch mode only: what enforce mode would have done
 
 
 # --- small helpers -----------------------------------------------------------
@@ -204,12 +206,19 @@ class Gate:
         approver: Approver,
         log: AuditLog,
         config: BrokerConfig,
+        counters: Counters | None = None,
     ) -> None:
         self.config = config
+        self._mode = config.mode  # fixed at start-up; no tool call can change it
         self.profile = profile
         self.backend = backend
         self.approver = approver
         self.log = log
+        self.counters = counters
+
+    @property
+    def mode(self) -> str:
+        return self._mode
 
     def handle(self, session: Session, tool: str, args: dict[str, Any]) -> Result:
         model = ARG_MODELS.get(tool)
@@ -229,6 +238,8 @@ class Gate:
         )
         decision = evaluate(self.profile, action)
         meta = call_metadata(args)
+        if self._mode == "watch":
+            return self._watch(session, tool, args, decision, meta)
         if decision.verdict == Verdict.DENY:
             return self._finish(session, tool, Result(False, Verdict.DENY, decision.reason), meta)
         approval: ApprovalOutcome | None = None
@@ -243,6 +254,24 @@ class Gate:
         if error:
             meta["error"] = error
         result = Result(error is None, decision.verdict, decision.reason, data, approval)
+        return self._finish(session, tool, result, meta)
+
+    def _watch(
+        self,
+        session: Session,
+        tool: str,
+        args: Args,
+        decision: Decision,
+        meta: dict[str, MetadataValue],
+    ) -> Result:
+        """Trial days 1-3: log what enforce mode would have done, then run the call anyway."""
+        meta["would_have"] = decision.verdict.value
+        redact = decision.verdict == Verdict.ALLOW_REDACTED
+        data, error = self._run(session, args, redact, meta)
+        if error:
+            meta["error"] = error
+        reason = f"watch mode; would have {decision.verdict.value}: {decision.reason}"
+        result = Result(error is None, Verdict.ALLOW, reason, data, would_have=decision.verdict)
         return self._finish(session, tool, result, meta)
 
     def _ask(self, session: Session, args: Args, decision: Decision) -> ApprovalOutcome:
@@ -298,9 +327,13 @@ class Gate:
     ) -> Result:
         row = dict(meta or {})
         row["profile"] = self.profile.name
+        row["mode"] = self._mode
         row["agent_id"] = session.agent_id[:64]
         row["tainted"] = session.tainted
         if session.tainted:
             row["taint_reason"] = session.taint_reason
         self.log.append(session.session_id, tool[:64], result.verdict.value, result.reason, row)
+        if self.counters is not None:
+            day = session.clock().date()
+            self.counters.record(day, result.verdict, result.approval, result.would_have)
         return result

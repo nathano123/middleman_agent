@@ -1,6 +1,8 @@
 """Command line: verify-log, profiles, taint clear, agents, approvals, simulate, report."""
 
 import argparse
+import json
+import shutil
 import sys
 from datetime import date
 from pathlib import Path
@@ -94,9 +96,28 @@ def cmd_agents_add(config_path: Path, label: str) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(f"registered agent {label!r} (id {agent_id})")
-    print("launch command for this agent's MCP server:")
-    print(f"  uv --directory {Path.cwd()} run broker serve --agent {label} --config {config_path}")
+    print(setup_snippets(label, config_path))
     return 0
+
+
+def setup_snippets(label: str, config_path: Path) -> str:
+    """Copy-paste MCP client config for one agent, with absolute paths."""
+    uv = shutil.which("uv") or "/ABSOLUTE/PATH/TO/uv"
+    repo = str(Path(__file__).resolve().parents[1])
+    config = str(config_path.expanduser().resolve())
+    args = ["--directory", repo, "run", "broker", "serve", "--agent", label, "--config", config]
+    desktop = {"mcpServers": {f"agent-broker-{label}": {"command": uv, "args": args}}}
+    return "\n".join(
+        [
+            "",
+            "Claude Desktop: add this entry to claude_desktop_config.json, then quit and restart",
+            "(macOS: ~/Library/Application Support/Claude/claude_desktop_config.json):",
+            json.dumps(desktop, indent=2),
+            "",
+            "Claude Code (stdio):",
+            f"  claude mcp add --transport stdio agent-broker-{label} -- {uv} {' '.join(args)}",
+        ]
+    )
 
 
 DEV_WARNING = (
@@ -168,6 +189,9 @@ def build_parser() -> argparse.ArgumentParser:
     agents_add = agents_sub.add_parser("add", help="register a new agent label")
     agents_add.add_argument("label")
     agents_add.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    serve_cmd = sub.add_parser("serve", help="run the MCP server (stdio) for one agent")
+    serve_cmd.add_argument("--agent", required=True, help="label from `broker agents add`")
+    serve_cmd.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     approvals = sub.add_parser(
         "approvals", help="answer pending approvals (DEVELOPMENT ONLY)", description=DEV_WARNING
     )
@@ -198,6 +222,14 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_verify_log(args.path)
     if args.command == "taint":
         return cmd_taint_clear(args.config, args.agent)
+    if args.command == "serve":
+        from broker.mcp_server import serve  # MCP imports only when serving
+
+        try:
+            return serve(args.config, args.agent)
+        except ConfigError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     if args.command == "approvals":
         return cmd_approvals(args.config, args.approvals_command, getattr(args, "id", None))
     if args.command == "agents":

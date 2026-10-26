@@ -105,7 +105,7 @@ class MemoryTaintStore:
 class SQLiteTaintStore:
     def __init__(self, path: Path, quiet: timedelta = timedelta(hours=24)) -> None:
         self.quiet = quiet
-        self._conn = sqlite3.connect(private_file(path))
+        self._conn = sqlite3.connect(private_file(path), check_same_thread=False)
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS taint ("
             "agent_id TEXT PRIMARY KEY, reason TEXT NOT NULL,"

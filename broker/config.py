@@ -38,6 +38,10 @@ class BrokerConfig(BaseModel):
     full_view_body_chars: int = Field(default=2000, ge=1)
     full_view_after_approvals: int = Field(default=10, ge=1)
     state_dir: Path = Path("~/.agent-broker")
+    backend: Literal["fake", "google"] = "fake"
+    fake_fixture: Path | None = None  # JSON inbox for backend: fake (development)
+    approval_wait_seconds: float = Field(default=45.0, gt=0, le=300)
+    timezone: str = "UTC"  # IANA name; used for calendar listing and event times
 
     def agent_id_for(self, label: str) -> str:
         """The registered id for a launch label. Unregistered labels are refused."""

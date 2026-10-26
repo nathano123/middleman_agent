@@ -46,3 +46,8 @@ def test_events_drop_attendee_addresses_and_mask_description() -> None:
     assert row["attendee_count"] == 2
     assert "attendees" not in row
     assert "0123456789" not in row["description"]
+
+
+def test_read_redacted_masks_snippet_too() -> None:
+    message = Message("m1", "a@x.test", [], "s", "d", "call +1 415 555 0134", "body")
+    assert "555" not in minimize_message(message, redact=True)["snippet"]

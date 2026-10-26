@@ -36,6 +36,8 @@ def minimize_search(messages: list[Message]) -> list[dict[str, Any]]:
 
 def minimize_message(message: Message, redact: bool) -> dict[str, Any]:
     result = message_header(message)
+    if redact:  # the snippet is the start of the body, so it is masked too
+        result["snippet"] = mask(message.snippet)
     result["body"] = mask(message.body) if redact else message.body
     return result
 

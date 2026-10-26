@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "keyring>=25.7.0",
+    "mcp>=2.3,<3",
     "pydantic>=2",
     "pyyaml>=6",
 ]

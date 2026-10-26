@@ -130,7 +130,7 @@ class AuditLog:
         self.path = path
         self.keys = keys
         self._key = log_key(keys, create=True) if keys else None
-        self._conn = sqlite3.connect(private_file(path))
+        self._conn = sqlite3.connect(private_file(path), check_same_thread=False)
         self._conn.execute(SCHEMA)
         self._conn.commit()
 

@@ -51,7 +51,7 @@ class MemoryApprovalHistory:
 
 class SQLiteApprovalHistory:
     def __init__(self, path: Path) -> None:
-        self._conn = sqlite3.connect(private_file(path))
+        self._conn = sqlite3.connect(private_file(path), check_same_thread=False)
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS prompts ("
             "agent_id TEXT, day TEXT, count INTEGER NOT NULL, PRIMARY KEY (agent_id, day))"

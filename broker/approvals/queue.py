@@ -74,7 +74,7 @@ def _item(row: sqlite3.Row) -> QueueItem:
 class ApprovalQueue:
     def __init__(self, path: Path, expiry: timedelta = EXPIRY) -> None:
         self.expiry = expiry
-        self._conn = sqlite3.connect(private_file(path), timeout=10)
+        self._conn = sqlite3.connect(private_file(path), timeout=10, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         # Overwrite erased content with zeros; otherwise it lingers in free pages of the file.
         self._conn.execute("PRAGMA secure_delete = ON")

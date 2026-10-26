@@ -103,6 +103,7 @@ class Result:
     data: Any = None
     approval: ApprovalOutcome | None = None
     would_have: Verdict | None = None  # watch mode only: what enforce mode would have done
+    error: str | None = None  # stable code when the call could not run (never content)
 
 
 # --- small helpers -----------------------------------------------------------
@@ -252,7 +253,7 @@ class Gate:
         try:
             parsed = model.model_validate(args)
         except ValidationError:
-            denied = Result(False, Verdict.DENY, "invalid arguments")
+            denied = Result(False, Verdict.DENY, "invalid arguments", error="invalid_arguments")
             return self._finish(session, tool, denied, {"error": "invalid_arguments"})
         return self._decide_and_run(session, tool, parsed)
 
@@ -279,7 +280,9 @@ class Gate:
         data, error = self._run(session, args, redact, meta, approved_hash)
         if error:
             meta["error"] = error
-        result = Result(error is None, decision.verdict, decision.reason, data, approval)
+        result = Result(
+            error is None, decision.verdict, decision.reason, data, approval, None, error
+        )
         return self._finish(session, tool, result, meta)
 
     def _watch(
@@ -297,7 +300,9 @@ class Gate:
         if error:
             meta["error"] = error
         reason = f"watch mode; would have {decision.verdict.value}: {decision.reason}"
-        result = Result(error is None, Verdict.ALLOW, reason, data, would_have=decision.verdict)
+        result = Result(
+            error is None, Verdict.ALLOW, reason, data, would_have=decision.verdict, error=error
+        )
         return self._finish(session, tool, result, meta)
 
     def _ask(

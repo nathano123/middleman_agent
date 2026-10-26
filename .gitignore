@@ -1,0 +1,29 @@
+# Secrets and credentials: never commit
+*.json.token
+token*.json
+credentials*.json
+client_secret*.json
+*.pem
+*.key
+.env
+.env.*
+secrets/
+
+# Local data written by the broker
+*.db
+*.sqlite
+*.sqlite3
+counters*.json
+*.log
+
+# Python / tooling
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+.DS_Store

@@ -3,6 +3,7 @@
 handle() never raises for agent input. Every call, allowed or not, writes exactly one log row.
 """
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,7 @@ from broker.approvals.base import (
     ApprovalOutcome,
     ApprovalRequest,
     Approver,
+    final_outcome,
 )
 from broker.audit import AuditLog, MetadataValue
 from broker.backends.base import Backend
@@ -132,30 +134,44 @@ def constraints_for(session: Session, args: Args) -> Constraints:
     )
 
 
-def approval_request(session: Session, args: Args, decision: Decision) -> ApprovalRequest:
-    """Built only from the agent's structured arguments, never from any message text."""
+def prompt_fields(args: Args) -> tuple[str, list[str], str, str]:
+    """(tool, recipients, subject, body) taken from the agent's own arguments."""
+    if isinstance(args, SendMailArgs):
+        return "send_mail", addresses(args.to + args.cc), args.subject, args.body
+    if isinstance(args, CreateEventArgs):
+        return "create_event", addresses(args.attendees), args.title, args.description
+    raise ValueError(f"no approval prompt defined for {type(args).__name__}")
+
+
+def approval_request(
+    session: Session, args: Args, decision: Decision, config: BrokerConfig
+) -> ApprovalRequest:
+    """Built only from the agent's structured arguments and session counters.
+
+    No Message or Event ever reaches this function; see tests/unit/test_prompt.py.
+    """
+    tool, recipients, subject, body = prompt_fields(args)
     reason = decision.reason
     if session.tainted:
         reason = f"{reason}; session tainted: {session.taint_reason}"
-    if isinstance(args, SendMailArgs):
-        return ApprovalRequest(
-            session_id=session.session_id,
-            tool="send_mail",
-            recipients=addresses(args.to + args.cc),
-            subject=args.subject,
-            body_preview=args.body[:BODY_PREVIEW_CHARS],
-            reason=reason,
-        )
-    if isinstance(args, CreateEventArgs):
-        return ApprovalRequest(
-            session_id=session.session_id,
-            tool="create_event",
-            recipients=addresses(args.attendees),
-            subject=args.title,
-            body_preview=args.description[:BODY_PREVIEW_CHARS],
-            reason=reason,
-        )
-    raise ValueError(f"no approval prompt defined for {type(args).__name__}")
+    number = session.approvals + 1
+    long_and_tainted = session.tainted and len(body) > config.full_view_body_chars
+    return ApprovalRequest(
+        session_id=session.session_id,
+        tool=tool,
+        recipients=recipients,
+        subject=subject,
+        body_preview=body[:BODY_PREVIEW_CHARS],
+        reason=reason,
+        body_length=len(body),
+        more_chars=max(0, len(body) - BODY_PREVIEW_CHARS),
+        body_sha256=hashlib.sha256(body.encode("utf-8")).hexdigest()[:12],
+        approval_number=number,
+        outside_recipients=[r for r in recipients if not session.is_known(r)],
+        new_recipients=[r for r in recipients if r not in session.approved_recipients],
+        requires_full_view=long_and_tainted or number > config.full_view_after_approvals,
+        full_body=body,
+    )
 
 
 def call_metadata(args: Args) -> dict[str, MetadataValue]:
@@ -214,7 +230,7 @@ class Gate:
             return self._finish(session, tool, Result(False, Verdict.DENY, decision.reason), meta)
         approval: ApprovalOutcome | None = None
         if decision.verdict == Verdict.ASK:
-            approval = self.approver.request(approval_request(session, args, decision))
+            approval = self._ask(session, args, decision)
             meta["approval"] = approval.value
             if approval != ApprovalOutcome.APPROVED:
                 denied = Result(False, Verdict.ASK, decision.reason, approval=approval)
@@ -225,6 +241,14 @@ class Gate:
             meta["error"] = error
         result = Result(error is None, decision.verdict, decision.reason, data, approval)
         return self._finish(session, tool, result, meta)
+
+    def _ask(self, session: Session, args: Args, decision: Decision) -> ApprovalOutcome:
+        req = approval_request(session, args, decision, self.config)
+        session.approvals = req.approval_number
+        outcome = final_outcome(req, self.approver.request(req))
+        if outcome == ApprovalOutcome.APPROVED:
+            session.approved_recipients.update(req.recipients)
+        return outcome
 
     def _run(
         self, session: Session, args: Args, redact: bool, meta: dict[str, MetadataValue]

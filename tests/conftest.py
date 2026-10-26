@@ -122,8 +122,14 @@ def matches(req: ApprovalRequest, recipients: list[str], subject: str, body: str
 
 
 def approved_requests(world: World) -> list[ApprovalRequest]:
-    pairs = zip(world.approver.requests, world.approver.answers, strict=True)
-    return [req for req, answer in pairs if answer == ApprovalOutcome.APPROVED]
+    """Prompts the gate accepted: approved, and full body opened when that was required."""
+    a = world.approver
+    triples = zip(a.requests, a.answers, a.viewed, strict=True)
+    return [
+        req
+        for req, answer, viewed in triples
+        if answer == ApprovalOutcome.APPROVED and (viewed or not req.requires_full_view)
+    ]
 
 
 def check_invariants(world: World) -> None:

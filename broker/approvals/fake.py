@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from broker.approvals.base import ApprovalOutcome, ApprovalRequest
+from broker.approvals.base import ApprovalOutcome, ApprovalRequest, ApprovalResponse
 
 
 @dataclass
@@ -13,8 +13,11 @@ class FakeApprover:
     requests: list[ApprovalRequest] = field(default_factory=list[ApprovalRequest])
     answers: list[ApprovalOutcome] = field(default_factory=list[ApprovalOutcome])
 
-    def request(self, req: ApprovalRequest) -> ApprovalOutcome:
+    viewed: list[bool] = field(default_factory=list[bool])
+
+    def request(self, req: ApprovalRequest) -> ApprovalResponse:
         self.requests.append(req)
         answer = self.script.pop(0) if self.script else self.default
         self.answers.append(answer)
-        return answer
+        self.viewed.append(self.views_full_body)
+        return ApprovalResponse(answer, viewed_full_body=self.views_full_body)

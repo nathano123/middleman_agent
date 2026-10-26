@@ -108,3 +108,13 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 - `draft_reply` now addresses the draft to Reply-To when present (what a mail client would do) and returns that address, so the agent and user see where it would go.
 - Red-team tests 22 (reconnect), 26 (alias), 27 (spoof) now pass; xfail markers removed. Test 23 (Reply-To) taints and drafts correctly but still waits on the step 3 prompt field.
 - Found while testing: `mark_tainted` did not pin taint to the live session until the next read; fixed.
+
+## 2026-10-27 Approval prompt honesty
+- The prompt now carries: total body length, `more_chars` (shown as `[+N more characters not shown]`), the first 12 hex of SHA-256 of the full body, `approval #N this session`, `OUTSIDE:` recipients (not known contacts), `NEW this session:` recipients (not approved earlier in this session), and whether the full body must be opened. `render_prompt()` turns this into the notification text; every line comes from request fields.
+- Full-view rule: a plain Approve is refused (`approval: unviewed`) when (a) the session is tainted and the body/description is longer than `full_view_body_chars` (default 2,000), or (b) this is prompt number `full_view_after_approvals + 1` or later in the session (default: from the 11th). The approver's answer now carries `viewed_full_body`; the fake approver simulates it with `views_full_body`.
+- Why a 12-hex hash: long enough to tell two bodies apart at a glance, short enough for a phone line. It identifies repeats; it is not a security control.
+- Why the counter raises the bar rather than blocking: test 25 shows 30 harmless approvals; blocking the 31st would punish normal use. Requiring the full body breaks the "tap Approve on autopilot" pattern exactly when it is most likely.
+- Builder input: `approval_request(session, args, decision, config)`. A test checks the signature admits only those four types (no `Message`/`Event`), and a replay test reads every fixture message and event, then checks that no inbound text (8+ chars) appears in any rendered prompt or full body.
+- `send_mail` still has no attachment field; a test checks `attachments=[...]` is denied before any prompt.
+- Test 24 had a construction bug (body was 49,978 chars, not 50,000); fixed in the test, not the gate.
+- All six red-team tests (22-27) now pass; no xfail markers remain.

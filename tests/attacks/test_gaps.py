@@ -4,7 +4,6 @@ Written before the fixes. Tests that fail on the Milestone 1 code are marked
 xfail(strict=True); the fix that makes one pass removes its marker.
 """
 
-import pytest
 
 from broker.approvals.base import ApprovalOutcome
 from broker.rules.models import Verdict
@@ -25,7 +24,6 @@ def test_22_taint_survives_reconnect_of_same_agent(world: WorldFactory) -> None:
     assert w.backend.created_events == []
 
 
-@pytest.mark.xfail(strict=True, reason="M1 ignores Reply-To; known From is trusted")
 def test_23_reply_to_mismatch_counts_as_outside(world: WorldFactory) -> None:
     w = world(messages=["m_replyto"])
     w.call("read_message", message_id="m_replyto")
@@ -42,12 +40,10 @@ def test_23_reply_to_mismatch_counts_as_outside(world: WorldFactory) -> None:
     assert w.backend.sent == []
 
 
-@pytest.mark.xfail(strict=True, reason="M1 prompt shows 200 chars with no length or cut marker")
 def test_24_buried_payload_length_and_cut_are_visible(world: WorldFactory) -> None:
     w = world(messages=["m_forward"], default=APPROVED)
     w.call("read_message", message_id="m_forward")
-    body = "Hi, quick note about lunch. " + "x" * 200 + ("DATA " * 9_950)
-    body = body[:50_000]
+    body = ("Hi, quick note about lunch. " + "x" * 200 + "DATA " * 10_000)[:50_000]
     result = w.call("send_mail", to=[EXFIL], subject="lunch", body=body)
     [prompt] = w.approver.requests
     assert prompt.body_length == 50_000
@@ -58,7 +54,6 @@ def test_24_buried_payload_length_and_cut_are_visible(world: WorldFactory) -> No
     assert w.backend.sent == []
 
 
-@pytest.mark.xfail(strict=True, reason="M1 prompts carry no counter, history or raised bar")
 def test_25_thirty_harmless_approvals_then_a_bad_one(world: WorldFactory) -> None:
     w = world(default=APPROVED, views_full_body=True)
     for _ in range(30):

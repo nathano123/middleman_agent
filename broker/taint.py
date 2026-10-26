@@ -1,4 +1,4 @@
-"""Per-session taint: once a session has read content from an unknown sender, it stays tainted.
+"""Per-session taint: once a session has seen content from an unknown sender, it stays tainted.
 
 Taint comes only from who wrote the content (by email address), never from what the content
 says. No classifier, keyword list or language check is involved.
@@ -41,6 +41,12 @@ class Session:
 def taint_on_read_message(session: Session, sender: str) -> None:
     if not session.is_known(sender):
         session.mark_tainted("read a message from an unknown sender")
+
+
+def taint_on_search(session: Session, senders_with_snippet: list[str]) -> None:
+    """Taint if any returned result carries snippet text from an unknown sender."""
+    if any(not session.is_known(s) for s in senders_with_snippet):
+        session.mark_tainted("search returned a snippet from an unknown sender")
 
 
 def taint_on_list_events(session: Session, organizers_with_description: list[str]) -> None:

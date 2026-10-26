@@ -19,7 +19,13 @@ from broker.backends.base import Backend
 from broker.minimizer import minimize_events, minimize_message, minimize_search
 from broker.rules.evaluator import evaluate
 from broker.rules.models import Action, Constraints, Decision, Profile, Resource, Verdict
-from broker.taint import Session, normalize_address, taint_on_list_events, taint_on_read_message
+from broker.taint import (
+    Session,
+    normalize_address,
+    taint_on_list_events,
+    taint_on_read_message,
+    taint_on_search,
+)
 
 OWN_CALENDAR = "primary"
 
@@ -217,7 +223,9 @@ class Gate:
         """Call the backend and minimize. Applies taint after reads. Returns (data, error)."""
         b = self.backend
         if isinstance(args, SearchMailArgs):
-            return minimize_search(b.search_messages(args.query, args.limit)), None
+            messages = b.search_messages(args.query, args.limit)
+            taint_on_search(session, [m.sender for m in messages if m.snippet.strip()])
+            return minimize_search(messages), None
         if isinstance(args, ReadMessageArgs):
             message = b.get_message(args.message_id)
             if message is None:

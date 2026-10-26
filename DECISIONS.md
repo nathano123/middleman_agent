@@ -50,7 +50,7 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 - Minimizer fields: search → id, sender, subject, date, snippet. read_message → the same plus body (masked under `allow_redacted`). list_events → id, title, start, end, organizer, attendee *count*, masked description. Attendee addresses are not returned.
 - Masking: three regexes, applied in order: emails → `[email]`, phone-like runs (8+ chars of digits/space/()-.) → `[phone]`, 6+ digit runs → `[number]`. Placeholder until Presidio (M4). Known misses: names, street addresses, IBANs (only the digit run is masked).
 - Event descriptions are returned (masked). They are the attack surface for invite injection; taint, not hiding, is what guards the follow-up action.
-- Open concern: `search_mail` returns the snippet (first ~90 chars of the body) and, per the brief's table, never taints. A short injected instruction can sit inside a snippet from an unknown sender. See README "What this does not cover".
+- Open concern (resolved 2026-10-26, see "search_mail taints" below): `search_mail` returned snippets from unknown senders without tainting.
 
 ## 2026-10-26 Gate
 - Chose: `Gate(profile, backend, approver, log).handle(session, tool, args) -> Result`. Steps: unknown tool → deny; args validated by a per-tool pydantic model with `extra="forbid"` (bad args → deny); constraints computed from args + session; evaluate; deny → stop; ask → build prompt from args, approver must return `approved`; run backend; apply taint after reads; minimize; log exactly one row.
@@ -69,3 +69,11 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 ## 2026-10-26 CLI
 - Chose: argparse (stdlib), two commands only. `verify-log` exits 0 intact / 1 tampered / 2 missing, and always reminds that tail truncation is not detectable. `profiles` loads all three and exits 1 if any fails to load.
 - Rejected: click/typer (extra dependency for two commands).
+
+## 2026-10-26 search_mail taints on unknown-sender snippets (departs from the brief's table)
+- Chose: `search_mail` now taints the session if any returned result has a non-empty snippet from a sender that is not a known contact. Reason string: "search returned a snippet from an unknown sender". The brief's table said "Taint effect: none" for `search_mail`; the owner approved this change on 2026-10-26.
+- Why: a snippet is attacker-written text (first ~90 chars of the body). An agent that only searches, never opens a message, could otherwise be steered by it while the session stays clean.
+- Effect on the tool table: search_mail | allow; headers and snippet only | **taints if any result's snippet is from an unknown sender**.
+- Consequence: a broad inbox search (e.g. empty query) will almost always taint, since most inboxes hold mail from unknown senders. In the working profile this changes little (every send already asks; own-calendar events now ask after such a search). In autonomous it means most sessions that search will ask before sending. Worth watching in the 14-day trial for approval fatigue.
+- Rejected: dropping snippets from search results (loses the main reason to search); tainting only on snippets that "look like" instructions (would need a classifier in the decision path, which the brief rules out).
+- Test: attack test 21 (`tests/attacks/test_snippet.py`) runs in the autonomous profile, where taint decides the outcome. It fails if the search-taint call is removed (checked 2026-10-26).

@@ -13,9 +13,10 @@ Every tool call goes through `Gate.handle(session, tool, args)`:
    (`broker/rules/profiles/*.yaml`) and returns `allow`, `allow_redacted`, `ask` or `deny`.
    Any tool or case not matched by a rule is denied. If several rules match, the strictest
    wins. No AI model is involved in the decision.
-2. **Taint.** The first time a session reads mail from an address that is not a known
-   contact (or lists an event whose description was written by an outside organizer), the
-   session becomes tainted for the rest of its life. The profiles make tainted sends and
+2. **Taint.** The first time a session sees content from an address that is not a known
+   contact (reads the message, gets its snippet in a search, or lists an event whose
+   description was written by an outside organizer), the session becomes tainted for the
+   rest of its life. The profiles make tainted sends and
    calendar writes ask (or deny).
 3. **Approval.** For `ask`, a prompt is built from the agent's structured arguments only:
    recipients, subject, first 200 characters of the body. Anything but an explicit approval
@@ -42,9 +43,9 @@ approver, end in a prompt or a deny rather than a silent send. Known gaps:
 - **Known contacts are trusted.** Taint is based only on the sender address. An instruction
   from a known contact (or from a compromised known account) does not taint. Spoofed `From`
   headers are not checked (no SPF/DKIM/DMARC check yet).
-- **Search snippets do not taint.** `search_mail` returns about 90 characters of each body,
-  including from unknown senders, and does not taint the session (per the v0 tool table).
-  A short instruction can arrive this way.
+- **Broad searches taint.** `search_mail` taints the session when any result's snippet comes
+  from an unknown sender (a change from the original v0 table). This closes the snippet
+  channel but means most broad searches taint, so expect more approval prompts.
 - **The agent still sees injected text.** Hidden HTML, comments and encoded payloads are
   passed through (bodies only have personal data masked). The gate limits what the agent
   can *do* afterwards; it does not clean what the agent *reads*.

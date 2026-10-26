@@ -1,6 +1,12 @@
 from broker.rules.evaluator import evaluate, load_profile
 from broker.rules.models import Action, Constraints, Verdict
-from broker.taint import Session, normalize_address, taint_on_list_events, taint_on_read_message
+from broker.taint import (
+    Session,
+    normalize_address,
+    taint_on_list_events,
+    taint_on_read_message,
+    taint_on_search,
+)
 
 
 def new_session() -> Session:
@@ -99,3 +105,18 @@ def test_taint_changes_create_event_decision() -> None:
     assert (
         _decide(session, "create_event", own_calendar=True, outside_attendees=True) == Verdict.ASK
     )
+
+
+def test_search_taints_on_unknown_sender_snippet() -> None:
+    session = new_session()
+    taint_on_search(session, ['"Alice" <alice@work.test>', "bob@work.test"])
+    assert not session.tainted
+    taint_on_search(session, ["alice@work.test", "stranger@evil.test"])
+    assert session.tainted
+    assert "snippet" in session.taint_reason
+
+
+def test_empty_search_does_not_taint() -> None:
+    session = new_session()
+    taint_on_search(session, [])
+    assert not session.tainted

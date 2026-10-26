@@ -35,6 +35,8 @@ ALLOWED_METADATA_KEYS: frozenset[str] = frozenset(
         "attendee_domains",
         "approval",
         "error",
+        "agent_id",
+        "auth_result",
     }
 )
 

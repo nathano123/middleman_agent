@@ -10,6 +10,7 @@ Invariants checked after every test that used `world`:
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -18,13 +19,28 @@ from broker.approvals.base import BODY_PREVIEW_CHARS, ApprovalOutcome, ApprovalR
 from broker.approvals.fake import FakeApprover
 from broker.audit import AuditLog
 from broker.backends.fake import FakeBackend
+from broker.config import BrokerConfig, ProfileName
 from broker.gate import Gate, Result
 from broker.rules.evaluator import load_profile
-from broker.taint import Session, normalize_address
+from broker.taint import Contacts, MemoryTaintStore, Session, normalize_address
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mailbox.json"
 OWN_ADDRESS = "me@home.test"
 KNOWN_CONTACTS = frozenset({"alice@work.test", "bob@work.test", "carol@partner.test"})
+
+
+START = datetime(2026, 10, 27, 9, 0, tzinfo=UTC)
+
+
+@dataclass
+class FakeClock:
+    now: datetime = START
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, hours: float) -> None:
+        self.now += timedelta(hours=hours)
 
 
 @dataclass
@@ -35,6 +51,9 @@ class World:
     approver: FakeApprover
     log: AuditLog
     log_path: Path
+    config: BrokerConfig
+    store: MemoryTaintStore
+    clock: FakeClock
 
     def call(self, tool: str, **args: object) -> Result:
         return self.gate.handle(self.session, tool, dict(args))
@@ -43,11 +62,7 @@ class World:
         """Simulate the same agent opening a new connection: a fresh Session, same agent id."""
         old = self.session
         self.session = Session(
-            f"{old.session_id}+",
-            old.own_address,
-            old.known_contacts,
-            agent_id=old.agent_id,
-            self_addresses=old.self_addresses,
+            f"{old.session_id}+", old.agent_id, old.contacts, self.store, self.clock
         )
 
 
@@ -63,7 +78,7 @@ def fixture_texts() -> list[str]:
 
 def build_world(
     tmp_path: Path,
-    profile: str = "working",
+    profile: ProfileName = "working",
     messages: list[str] | None = None,
     events: list[str] | None = None,
     script: list[ApprovalOutcome] | None = None,
@@ -81,11 +96,21 @@ def build_world(
     )
     log_path = tmp_path / f"audit-{profile}.db"
     log = AuditLog(log_path)
-    session = Session(
-        "sess-1", OWN_ADDRESS, KNOWN_CONTACTS, self_addresses=frozenset(self_addresses or [])
+    config = BrokerConfig(
+        own_address=OWN_ADDRESS,
+        self_addresses=tuple(self_addresses or ()),
+        known_contacts=tuple(sorted(KNOWN_CONTACTS)),
+        profile=profile,
+        state_dir=tmp_path,
     )
-    gate = Gate(load_profile(profile), backend, approver, log)
-    return World(gate, session, backend, approver, log, log_path)
+    contacts = Contacts(
+        config.own_address, frozenset(config.self_addresses), frozenset(config.known_contacts)
+    )
+    store = MemoryTaintStore(timedelta(hours=config.taint_quiet_hours))
+    clock = FakeClock()
+    session = Session("sess-1", "default", contacts, store, clock)
+    gate = Gate(load_profile(profile), backend, approver, log, config)
+    return World(gate, session, backend, approver, log, log_path, config, store, clock)
 
 
 def matches(req: ApprovalRequest, recipients: list[str], subject: str, body: str) -> bool:
@@ -133,7 +158,7 @@ def world(tmp_path: Path) -> Iterator[WorldFactory]:
     built: list[World] = []
 
     def factory(
-        profile: str = "working",
+        profile: ProfileName = "working",
         messages: list[str] | None = None,
         events: list[str] | None = None,
         script: list[ApprovalOutcome] | None = None,

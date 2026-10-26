@@ -95,3 +95,16 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
   - Token patterns searched: `gho_`, `ghp_`, `github_pat_`, `AIza…`, `ya29.`, `sk-…`, `-----BEGIN`, `client_secret`, `refresh_token`. Only hit: the `.gitignore` line `client_secret*.json`.
   - Fixture domains are all `.test` (apparent short domains are 90-character snippet cuts); the only URL is `https://evil.test/join`.
   - Every file ever added is source, config, docs or the JSON fixture.
+
+## 2026-10-27 Config file, agent-level taint, trust rules
+- Config: `broker/config.py`, YAML at `~/.agent-broker/config.yaml` (example: `broker.example.yaml`). Holds settings only (addresses, contacts, profile, mode, agent registry, limits, state dir); rules stay in the profile YAML. Frozen pydantic model with `extra="forbid"`; unknown keys or bad values refuse to load.
+- Agent identity: config maps MCP client names to agent ids; every client not listed shares `default` (owner's choice, 2026-10-27). So a hijacked agent cannot shed taint by reconnecting under a new client name; registering a separate agent is a deliberate user edit to the config. The id is chosen by the gate from config, never by the agent.
+- `TaintStore` protocol (`get`, `mark`, `clear`) with `MemoryTaintStore` and `SQLiteTaintStore`, keyed by agent id. A record holds the first reason, first time and last time.
+- Expiry: active while `now - last_at < quiet` (default 24 h). A new tainting event restarts the clock and keeps the first reason. Reconnecting never clears it.
+- Within one live `Session`, taint never clears: once seen (or set), the session holds it even if the store record is cleared or expires. `broker taint clear` therefore takes effect on the next connection. Why: a tainted conversation still has the hostile text in its context; clearing must not re-arm that same context.
+- `broker taint clear [--agent X]` deletes the record and writes a log row (`tool=taint_clear`, reason says whether there was taint).
+- Trust rule (`distrust()`), in order: unknown sender → untrusted; known sender with `auth_result: fail` → untrusted; known sender whose Reply-To is a different, unknown address → untrusted. `auth_result: unknown` keeps M1 behaviour and is logged on every `read_message` row as `auth_result`.
+- `self_addresses` (aliases) count as known.
+- `draft_reply` now addresses the draft to Reply-To when present (what a mail client would do) and returns that address, so the agent and user see where it would go.
+- Red-team tests 22 (reconnect), 26 (alias), 27 (spoof) now pass; xfail markers removed. Test 23 (Reply-To) taints and drafts correctly but still waits on the step 3 prompt field.
+- Found while testing: `mark_tainted` did not pin taint to the live session until the next read; fixed.

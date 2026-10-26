@@ -14,7 +14,6 @@ EXFIL = "collect@evil.test"
 APPROVED = ApprovalOutcome.APPROVED
 
 
-@pytest.mark.xfail(strict=True, reason="M1 taint lives on the Session; a reconnect starts clean")
 def test_22_taint_survives_reconnect_of_same_agent(world: WorldFactory) -> None:
     w = world(messages=["m_forward"])
     w.call("read_message", message_id="m_forward")
@@ -77,14 +76,12 @@ def test_25_thirty_harmless_approvals_then_a_bad_one(world: WorldFactory) -> Non
     assert all(m.to == ["alice@work.test"] for m in w.backend.sent)
 
 
-@pytest.mark.xfail(strict=True, reason="M1 knows only one own address")
 def test_26_mail_from_own_alias_does_not_taint(world: WorldFactory) -> None:
     w = world(messages=["m_alias"], self_addresses=["me.work@office.test"])
     w.call("read_message", message_id="m_alias")
     assert not w.session.tainted
 
 
-@pytest.mark.xfail(strict=True, reason="M1 ignores authentication results")
 def test_27_spoofed_known_contact_taints(world: WorldFactory) -> None:
     w = world(messages=["m_spoof", "m_auth_unknown"])
     w.call("read_message", message_id="m_auth_unknown")  # unknown auth keeps M1 behaviour

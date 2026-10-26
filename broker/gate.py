@@ -16,6 +16,7 @@ from broker.approvals.base import (
 )
 from broker.audit import AuditLog, MetadataValue
 from broker.backends.base import Backend
+from broker.config import BrokerConfig
 from broker.minimizer import minimize_events, minimize_message, minimize_search
 from broker.rules.evaluator import evaluate
 from broker.rules.models import Action, Constraints, Decision, Profile, Resource, Verdict
@@ -178,8 +179,14 @@ def call_metadata(args: Args) -> dict[str, MetadataValue]:
 
 class Gate:
     def __init__(
-        self, profile: Profile, backend: Backend, approver: Approver, log: AuditLog
+        self,
+        profile: Profile,
+        backend: Backend,
+        approver: Approver,
+        log: AuditLog,
+        config: BrokerConfig,
     ) -> None:
+        self.config = config
         self.profile = profile
         self.backend = backend
         self.approver = approver
@@ -213,24 +220,27 @@ class Gate:
                 denied = Result(False, Verdict.ASK, decision.reason, approval=approval)
                 return self._finish(session, tool, denied, meta)
         redact = decision.verdict == Verdict.ALLOW_REDACTED
-        data, error = self._run(session, args, redact)
+        data, error = self._run(session, args, redact, meta)
         if error:
             meta["error"] = error
         result = Result(error is None, decision.verdict, decision.reason, data, approval)
         return self._finish(session, tool, result, meta)
 
-    def _run(self, session: Session, args: Args, redact: bool) -> tuple[Any, str | None]:
+    def _run(
+        self, session: Session, args: Args, redact: bool, meta: dict[str, MetadataValue]
+    ) -> tuple[Any, str | None]:
         """Call the backend and minimize. Applies taint after reads. Returns (data, error)."""
         b = self.backend
         if isinstance(args, SearchMailArgs):
             messages = b.search_messages(args.query, args.limit)
-            taint_on_search(session, [m.sender for m in messages if m.snippet.strip()])
+            taint_on_search(session, messages)
             return minimize_search(messages), None
         if isinstance(args, ReadMessageArgs):
             message = b.get_message(args.message_id)
             if message is None:
                 return None, "not_found"
-            taint_on_read_message(session, message.sender)
+            meta["auth_result"] = message.auth_result
+            taint_on_read_message(session, message)
             return minimize_message(message, redact=redact), None
         if isinstance(args, ListEventsArgs):
             events = b.list_events(args.calendar_id, args.limit)
@@ -240,9 +250,9 @@ class Gate:
             message = b.get_message(args.message_id)
             if message is None:
                 return None, "not_found"
-            subject = f"Re: {message.subject}"
-            draft_id = b.create_draft([message.sender], subject, args.body, message.id)
-            return {"draft_id": draft_id}, None
+            to = normalize_address(message.reply_to or message.sender)
+            draft_id = b.create_draft([to], f"Re: {message.subject}", args.body, message.id)
+            return {"draft_id": draft_id, "to": [to]}, None
         if isinstance(args, SendMailArgs):
             return {"sent_id": b.send_message(args.to, args.cc, args.subject, args.body)}, None
         if isinstance(args, CreateEventArgs):
@@ -261,6 +271,7 @@ class Gate:
     ) -> Result:
         row = dict(meta or {})
         row["profile"] = self.profile.name
+        row["agent_id"] = session.agent_id[:64]
         row["tainted"] = session.tainted
         if session.tainted:
             row["taint_reason"] = session.taint_reason

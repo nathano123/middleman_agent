@@ -140,6 +140,9 @@ def prompt_fields(args: Args) -> tuple[str, list[str], str, str]:
         return "send_mail", addresses(args.to + args.cc), args.subject, args.body
     if isinstance(args, CreateEventArgs):
         return "create_event", addresses(args.attendees), args.title, args.description
+    if isinstance(args, DraftReplyArgs):
+        # The draft's recipient comes from the stored message, so it is not shown here.
+        return "draft_reply", [], f"draft reply to message {args.message_id}", args.body
     raise ValueError(f"no approval prompt defined for {type(args).__name__}")
 
 

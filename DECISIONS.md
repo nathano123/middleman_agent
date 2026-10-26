@@ -118,3 +118,22 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 - `send_mail` still has no attachment field; a test checks `attachments=[...]` is denied before any prompt.
 - Test 24 had a construction bug (body was 49,978 chars, not 50,000); fixed in the test, not the gate.
 - All six red-team tests (22-27) now pass; no xfail markers remain.
+
+## 2026-10-27 Prompt-budget simulation
+- Chose: `broker/sim.py` (in the package so `broker simulate` can import it; tests in `tests/sim/`). A seeded generator makes one workday: 60 inbound mails (36 known contacts, 12 newsletters with `List-Unsubscribe` + `Precedence: bulk`, 6 vendor invoices, 6 unknown people), 6 events (4 internal; 2 with outside attendees, one of them organized by a vendor). A scripted agent runs two sessions a day through `Gate.handle` only: morning (search 20, read top 10, list events, 5 drafts), afternoon (2 in-thread replies to known contacts, 1 internal event, 1 event with an outside attendee). The approver approves everything and opens full bodies. Taint persists across sessions and days through the agent-level store.
+- "Taint-only" prompt: a prompt that the same call in a clean session would not have produced (re-evaluated with `tainted=False`). Reported as the avoidable share.
+- Measured (seed 7, 7 days, every day identical in shape):
+  | profile | prompts/day | taint-only | blocked/day | tainted by |
+  |---|---|---|---|---|
+  | cautious | 6.0 | 5 | 3 | search snippet from unknown sender |
+  | working | 4.0 | 1 | 0 | same |
+  | autonomous | 4.0 | 4 | 0 | same |
+- Working is under the target of 5, so no change to the gate was made. Options were still measured, so the trade-offs are on record:
+  1. Search snippets from bulk senders (List-Unsubscribe / Precedence bulk) do not taint. Measured: 4.0 → 4.0 in working and autonomous. Even exempting bulk mail on `read_message` too gives 4.0: vendor invoices and unknown people in the top results still taint. Cost: the header is attacker-controlled, so any injected mail could add it and reopen the snippet channel (attack 21). Rejected: no gain, real cost.
+  2. One batched prompt per session. Estimated 1.0/day for working. Cost: the user approves several different actions at once, which loses per-action consent and makes the misleading-prompt and 30-approvals attacks easier. Rejected for now; revisit only if real testers exceed 5.
+  3. In-thread replies to known contacts treated as lower risk (allowed without prompt). Estimated 2.0/day for working. Cost: a tainted agent can still put exfiltrated content into a reply to a real contact (and from there it may leave via that contact); "in-thread" depends on thread ids that a hostile mail can join. Not adopted; it is the most attractive lever if needed, and should come with "tainted sessions still ask".
+- Findings worth stating plainly:
+  - Taint is effectively always on in a realistic day: the morning search sees unknown senders, so both sessions are tainted every day. In autonomous, all 4 prompts are taint-only; autonomous behaves like working.
+  - Cautious is not livable for this script: 6 prompts a day, and both sends plus the outside invite are blocked every day.
+  - The simulation found a crash: cautious + tainted + `draft_reply` reached the prompt builder, which had no draft case (an M1 bug). Fixed: the draft prompt shows the target message id and the draft body, from the agent's arguments only. A new test runs every profile × tool × taint state through `handle`.
+- Limits: one scripted day shape, fixed counts, one agent, approver always approves. Real inboxes and agents will differ; the trial numbers are what count.

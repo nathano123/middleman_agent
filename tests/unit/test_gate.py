@@ -5,6 +5,7 @@ import pytest
 
 from broker.approvals.base import ApprovalOutcome
 from broker.audit import verify
+from broker.config import ProfileName
 from broker.rules.models import Verdict
 from tests.conftest import WorldFactory, build_world, check_invariants
 
@@ -122,3 +123,29 @@ def test_invariant_checker_catches_content_in_log(tmp_path: Path) -> None:
     w.log.close()
     with pytest.raises(AssertionError, match="leaked into log"):
         check_invariants(w)
+
+
+VALID_ARGS: dict[str, dict[str, object]] = {
+    "search_mail": {"query": ""},
+    "read_message": {"message_id": "m_lunch"},
+    "list_events": {},
+    "draft_reply": {"message_id": "m_lunch", "body": "ok"},
+    "send_mail": {"to": ["alice@work.test"], "subject": "s", "body": "b"},
+    "create_event": {"title": "t", "start": "s", "end": "e", "attendees": ["x@out.test"]},
+}
+
+
+@pytest.mark.parametrize("profile", ["cautious", "working", "autonomous"])
+@pytest.mark.parametrize("tainted", [False, True])
+@pytest.mark.parametrize("tool", sorted(VALID_ARGS))
+def test_handle_never_raises_for_any_profile_tool_taint(
+    tmp_path: Path, profile: ProfileName, tainted: bool, tool: str
+) -> None:
+    """Regression: cautious + tainted + draft_reply used to crash in the prompt builder.
+
+    Built without the attack-invariant fixture: autonomous may send unprompted when clean.
+    """
+    w = build_world(tmp_path, profile, ["m_lunch", "m_forward"], None, None)
+    if tainted:
+        w.call("read_message", message_id="m_forward")
+    w.call(tool, **VALID_ARGS[tool])

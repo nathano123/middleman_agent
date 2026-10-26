@@ -1,4 +1,4 @@
-"""Command line: verify-log, profiles, taint clear."""
+"""Command line: verify-log, profiles, taint clear, simulate."""
 
 import argparse
 import sys
@@ -7,6 +7,7 @@ from pathlib import Path
 from broker.audit import AuditError, AuditLog, verify
 from broker.config import DEFAULT_AGENT, DEFAULT_CONFIG_PATH, ConfigError, load_config
 from broker.rules.evaluator import PROFILE_NAMES, ProfileError, load_profile
+from broker.sim import format_table, simulate
 from broker.taint import SQLiteTaintStore
 
 
@@ -56,6 +57,14 @@ def cmd_taint_clear(config_path: Path, agent_id: str) -> int:
     return 0
 
 
+def cmd_simulate(profile: str, days: int, seed: int) -> int:
+    for name in PROFILE_NAMES:
+        if profile in (name, "all"):
+            print(format_table(name, simulate(name, days, seed)))
+            print()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="broker", description="Agent Access Broker (v0)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -67,6 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
     clear = taint_sub.add_parser("clear", help="clear an agent's taint and log it")
     clear.add_argument("--agent", default=DEFAULT_AGENT)
     clear.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    sim = sub.add_parser("simulate", help="replay fake workdays and count prompts")
+    sim.add_argument("--profile", choices=[*PROFILE_NAMES, "all"], default="working")
+    sim.add_argument("--days", type=int, default=7)
+    sim.add_argument("--seed", type=int, default=7)
     return parser
 
 
@@ -76,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_verify_log(args.path)
     if args.command == "taint":
         return cmd_taint_clear(args.config, args.agent)
+    if args.command == "simulate":
+        return cmd_simulate(args.profile, args.days, args.seed)
     return cmd_profiles()
 
 

@@ -12,10 +12,11 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from broker.config import ProfileName
 from broker.rules.models import KNOWN_TOOLS, STRICTNESS, Action, Decision, Profile, Rule, Verdict
 
 PROFILES_DIR = Path(__file__).parent / "profiles"
-PROFILE_NAMES: tuple[str, ...] = ("cautious", "working", "autonomous")
+PROFILE_NAMES: tuple[ProfileName, ...] = ("cautious", "working", "autonomous")
 
 
 class ProfileError(Exception):

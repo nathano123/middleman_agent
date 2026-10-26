@@ -4,7 +4,6 @@ Written before the fixes. Tests that fail on the Milestone 1 code are marked
 xfail(strict=True); the fix that makes one pass removes its marker.
 """
 
-
 from broker.approvals.base import ApprovalOutcome
 from broker.rules.models import Verdict
 from tests.conftest import WorldFactory

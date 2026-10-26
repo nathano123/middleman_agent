@@ -154,3 +154,14 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 - `broker verify-log` uses the keychain key when present and says which check it ran; without a key it warns that rewrites and tail truncation cannot be detected. `broker taint clear` writes keyed rows.
 - Tests never touch the real keychain: an autouse fixture installs an in-memory `KeyringBackend`, and a test asserts it is active.
 - Architecture guard (`tests/unit/test_architecture.py`): parses every module in `broker/` except `gate.py` and `backends/`, and fails on any call to a `Backend` method name (read from the protocol), including `getattr(x, "send_message")`. A self-test shows it catches both forms.
+
+## 2026-10-27 Deliberate-break checks (Milestone 1.5)
+Each break applied to the code, full suite run, then restored from git (253 passing after each restore).
+| break | result |
+|---|---|
+| taint disabled (`mark_tainted` does nothing) | 36 failed, 1 error: 20 attack tests incl. 21-24 and 27, the sim's autonomous test, taint/prompt/watch unit tests |
+| Reply-To rule disabled | 2 failed: attack 23, `test_reply_to_outside_makes_known_contact_untrusted` |
+| agent-level store disabled (taint keyed by connection id) | 6 failed: attack 22, sim autonomous test, store sharing and clear tests |
+| watch path forced in enforce mode | 35 failed, 30 errors across attacks, prompt and gate tests |
+| full-view rule disabled | 3 failed, 2 errors: attacks 24, 25, `test_full_view_needed_only_when_tainted_and_long` |
+- Gap found by break 4: the exhaustive enforce test trusted the gate's own reported verdict, so it stayed green when the gate silently ran everything. Fixed: it now computes the expected verdict from the profile independently and asserts `would_have is None` in enforce mode; under the same break it now fails all 18 combinations.

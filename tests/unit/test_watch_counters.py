@@ -11,8 +11,17 @@ from broker.backends.fake import FakeBackend
 from broker.cli import main
 from broker.config import ProfileName
 from broker.counters import Counters, weekly_report
-from broker.rules.models import Verdict
-from tests.conftest import FIXTURE, KNOWN_CONTACTS, OWN_ADDRESS, WorldFactory, build_world
+from broker.gate import ARG_MODELS, RESOURCES, constraints_for
+from broker.rules.evaluator import evaluate
+from broker.rules.models import Action, Verdict
+from tests.conftest import (
+    FIXTURE,
+    KNOWN_CONTACTS,
+    OWN_ADDRESS,
+    World,
+    WorldFactory,
+    build_world,
+)
 from tests.conftest import fixture_texts as fixture_content_texts
 
 EXFIL = "collect@evil.test"
@@ -82,6 +91,16 @@ ARGS: dict[str, dict[str, object]] = {
 }
 
 
+def policy_verdict(w: World, tool: str, args: dict[str, object]) -> Verdict:
+    """What the profile says for this call, evaluated without going through the gate."""
+    if tool not in ARG_MODELS:
+        return Verdict.DENY
+    parsed = ARG_MODELS[tool].model_validate(args)
+    constraints = constraints_for(w.session, parsed)
+    action = Action(tool=tool, resource=RESOURCES[tool], constraints=constraints)
+    return evaluate(w.gate.profile, action).verdict
+
+
 @pytest.mark.parametrize("profile", ["cautious", "working", "autonomous"])
 @pytest.mark.parametrize("tainted", [False, True])
 @pytest.mark.parametrize(
@@ -96,12 +115,14 @@ def test_enforce_mode_never_runs_a_call_the_decision_did_not_allow(
     if tainted:
         w.call("read_message", message_id="m_forward")
     for tool, args in ARGS.items():
+        expected = policy_verdict(w, tool, args)  # computed apart from the gate's own answer
         before = spy.calls
         result = w.call(tool, **args)
         ran = spy.calls > before
-        allowed = result.verdict in (Verdict.ALLOW, Verdict.ALLOW_REDACTED)
-        approved = result.verdict == Verdict.ASK and result.approval == ApprovalOutcome.APPROVED
-        assert ran == (allowed or approved), (tool, result)
+        allowed = expected in (Verdict.ALLOW, Verdict.ALLOW_REDACTED)
+        approved = expected == Verdict.ASK and result.approval == ApprovalOutcome.APPROVED
+        assert ran == (allowed or approved), (tool, expected, result)
+        assert result.would_have is None
 
 
 def test_mode_cannot_be_changed_by_an_agent_call(world: WorldFactory) -> None:

@@ -41,7 +41,7 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 
 [tool.pyright]
-include = ["broker", "tests"]
+include = ["broker", "tests", "scripts"]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
 venvPath = "."
@@ -49,3 +49,4 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["live: talks to the real Google test account; runs only with BROKER_LIVE=1"]

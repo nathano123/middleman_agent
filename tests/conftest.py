@@ -221,7 +221,10 @@ class MemoryKeyring(KeyringBackend):
 
 
 @pytest.fixture(autouse=True)
-def no_real_keychain() -> Iterator[MemoryKeyring]:
+def no_real_keychain(request: pytest.FixtureRequest) -> Iterator[MemoryKeyring | None]:
+    if "live" in request.keywords:  # live tests use the real keychain token
+        yield None
+        return
     previous = keyring.get_keyring()
     fake = MemoryKeyring()
     keyring.set_keyring(fake)

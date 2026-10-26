@@ -65,3 +65,7 @@ Each entry: what was chosen, why, what was rejected. Newest at the bottom.
 - A shared `world` fixture (tests/conftest.py) re-checks the acceptance bar after every test: no fixture body/subject/snippet/description bytes in the SQLite file; every sent mail and every outside-attendee event has an approved prompt equal to its real recipients/subject/body preview; every approved prompt matches a real backend effect. Two unit tests prove the checker itself fails on an unapproved send and on leaked content.
 - Mutation check (manual, 2026-10-26): flipping working `send_mail` to allow → 12 attack tests failed + 12 invariant errors; disabling `mark_tainted` → 15 failed + 1 error. Both reverted.
 - Test 13 is deliberately a "negative": the same Hebrew instruction from a known contact does not taint. That is the design (sender rule, no classifier), and it is a real gap: a compromised or careless known contact is trusted.
+
+## 2026-10-26 CLI
+- Chose: argparse (stdlib), two commands only. `verify-log` exits 0 intact / 1 tampered / 2 missing, and always reminds that tail truncation is not detectable. `profiles` loads all three and exits 1 if any fails to load.
+- Rejected: click/typer (extra dependency for two commands).

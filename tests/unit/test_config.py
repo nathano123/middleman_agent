@@ -122,6 +122,7 @@ def test_cli_taint_clear_refuses_unregistered_agent(tmp_path: Path) -> None:
 def test_printed_claude_code_command_survives_spaces_in_paths(tmp_path: Path) -> None:
     import shlex
 
+    import broker
     from broker.cli import setup_snippets
 
     folder = tmp_path / "path with spaces"
@@ -130,4 +131,5 @@ def test_printed_claude_code_command_survives_spaces_in_paths(tmp_path: Path) ->
     line = next(x for x in text.splitlines() if "claude mcp add" in x)
     words = shlex.split(line.split(" -- ", 1)[1])
     assert words[-1] == str((folder / "config.yaml").resolve())
-    assert words[words.index("--directory") + 1].endswith("agent-broker")
+    repo = Path(broker.__file__).resolve().parents[1]  # wherever the checkout lives
+    assert words[words.index("--directory") + 1] == str(repo)

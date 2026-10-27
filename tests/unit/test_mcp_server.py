@@ -11,9 +11,12 @@ import mcp_types as types
 from mcp.client import Client
 from mcp.server import NotificationOptions
 
+from broker.approvals.base import ApprovalOutcome
 from broker.approvals.queue import ApprovalQueue
 from broker.config import BrokerConfig
-from broker.mcp_server import build_server
+from broker.gate import Result, pending_data
+from broker.mcp_server import DENIED_TEXT, PENDING_TEXT, build_server, to_tool_result
+from broker.rules.models import Verdict
 from broker.runtime import Runtime, open_runtime
 from broker.taint import utc_now
 from tests.conftest import FIXTURE, KNOWN_CONTACTS, OWN_ADDRESS
@@ -100,13 +103,13 @@ def test_denied_call_is_short_with_stable_code(tmp_path: Path) -> None:
     runtime = make_runtime(tmp_path)
     unknown = call(runtime, "forward_message", {"message_id": "m_lunch"})
     assert unknown.is_error
-    assert text(unknown) == "Denied by policy (code: policy_deny)"
+    assert text(unknown) == DENIED_TEXT.format(code="policy_deny")
     bad = call(runtime, "send_mail", {"to": [], "subject": "s", "body": "b"})
-    assert text(bad) == "Denied by policy (code: invalid_arguments)"
+    assert text(bad) == DENIED_TEXT.format(code="invalid_arguments")
     other_cal = call(runtime, "create_event", {
         "calendar_id": "team", "title": "t", "start": "s", "end": "e",
     })  # fmt: skip
-    assert text(other_cal) == "Denied by policy (code: policy_deny)"
+    assert text(other_cal) == DENIED_TEXT.format(code="policy_deny")
     assert "rule" not in text(other_cal)
 
 
@@ -124,7 +127,7 @@ def test_send_goes_pending_then_succeeds_after_approval(tmp_path: Path) -> None:
         return first, second
 
     first, second = run(runtime, body)
-    assert "Pending approval" in text(first)
+    assert text(first).startswith("NOT DONE YET")
     assert not second.is_error
     assert "sent_id" in second.structured_content["result"]
 
@@ -175,3 +178,48 @@ def test_real_stdio_subprocess(tmp_path: Path) -> None:
     tools, result = anyio.run(main)
     assert tools == SIX
     assert result.structured_content["result"][0]["id"] == "m_lunch"
+
+
+# --- pending vs refused wording (dry run: Claude reported a pending approval as declined) ----
+
+REFUSAL_WORDS = ("denied", "declined", "rejected", "refused", "refusal", "not allowed", "blocked")
+
+
+def test_pending_text_says_not_done_and_what_to_do() -> None:
+    pending = Result(
+        ok=False,
+        verdict=Verdict.ASK,
+        reason="",
+        data=pending_data("apr_1"),
+        approval=ApprovalOutcome.PENDING,
+    )
+    result = to_tool_result(pending)
+    words = text(result).lower()
+    for phrase in (
+        "not done yet",
+        "waiting for the owner to approve",
+        "on their device",
+        "call this same tool again with identical arguments",
+        "apr_1",
+    ):
+        assert phrase in words
+    for refusal in REFUSAL_WORDS:
+        assert refusal not in words
+        assert refusal not in json.dumps(result.structured_content).lower()
+    assert not result.is_error
+    assert result.structured_content["status"] == "pending"
+    assert result.structured_content["approval_id"] == "apr_1"
+
+
+def test_refused_text_cannot_be_read_as_pending() -> None:
+    refused = to_tool_result(
+        Result(ok=False, verdict=Verdict.ASK, reason="", approval=ApprovalOutcome.DENIED)
+    )
+    words = text(refused).lower()
+    assert refused.is_error
+    assert words.startswith("refused")
+    assert "approval_denied" in words
+    assert refused.structured_content["status"] == "denied"
+    for pending_word in ("pending", "waiting", "not done yet", "call this same tool again"):
+        assert pending_word not in words
+    assert PENDING_TEXT.split(".")[0] not in DENIED_TEXT

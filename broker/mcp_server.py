@@ -1,8 +1,10 @@
 """MCP server over stdio: exactly six tools, each call goes to Gate.handle and nothing else.
 
 No resources, no prompts. Tool input schemas are the gate's own argument models (unknown
-fields rejected). A refused call returns "Denied by policy (code: ...)" with a stable code,
-not rule internals. Successful results are the minimized data the gate returned.
+fields rejected). A refused call returns DENIED_TEXT with a stable code, not rule internals.
+Successful results are the minimized data the gate returned. Pending and refused results use
+separate wording (PENDING_TEXT, DENIED_TEXT) so a model cannot mistake one for the other: in
+the dry run Claude reported a pending approval as declined.
 
 stdout carries the MCP protocol, so this module never prints; warnings go to stderr.
 """
@@ -34,6 +36,17 @@ DESCRIPTIONS = {
     "send_mail": "Send an email. Usually needs the user's approval; may return pending.",
     "create_event": "Create an event on your own calendar. Invitations may need approval.",
 }
+
+PENDING_TEXT = (
+    "NOT DONE YET. This action is waiting for the owner to approve it on their device "
+    "(status: pending, approval id {approval_id}). Nothing has been sent or created, and no "
+    "decision has been made yet. Tell the user it is waiting for their approval. After they "
+    "approve, call this same tool again with identical arguments to complete it."
+)
+DENIED_TEXT = (
+    "REFUSED by policy (code: {code}). This action was not done. Tell the user it was refused. "
+    "Do not retry unless the user asks you to."
+)
 
 APPROVAL_CODES = {
     ApprovalOutcome.DENIED: "approval_denied",
@@ -73,13 +86,11 @@ def to_tool_result(result: Result) -> types.CallToolResult:
         return text_result(json.dumps(result.data, ensure_ascii=False), data, False)
     if result.approval == ApprovalOutcome.PENDING:
         data = dict(result.data or {})
-        text = (
-            f"Pending approval (id {data.get('approval_id')}). Call the same tool again with "
-            "exactly the same arguments to get the answer."
-        )
+        text = PENDING_TEXT.format(approval_id=data.get("approval_id"))
         return text_result(text, data, False)
     code = denial_code(result)
-    return text_result(f"Denied by policy (code: {code})", {"denied": True, "code": code}, True)
+    data = {"status": "denied", "denied": True, "code": code}
+    return text_result(DENIED_TEXT.format(code=code), data, True)
 
 
 def client_name(ctx: ServerRequestContext[Any, Any]) -> str:

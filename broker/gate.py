@@ -218,9 +218,13 @@ def description_authors(event: Event) -> list[str]:
 
 def pending_data(approval_id: str) -> dict[str, str]:
     return {
-        "status": "pending_approval",
+        "status": "pending",
+        "done": "no",
         "approval_id": approval_id,
-        "next_step": "Call the same tool again with exactly the same arguments to get the answer.",
+        "next_step": (
+            "Tell the user to approve it on their device, then call the same tool again with "
+            "identical arguments."
+        ),
     }
 
 

@@ -62,7 +62,7 @@ Profiles: `cautious` (asks more, denies tainted sends), `working` (default), `au
 > Milestone 3). See THREAT_MODEL.md.
 
 A tool call that needs approval waits about 45 seconds. If nobody has answered by then, it
-returns `pending_approval` with an id, and the agent repeats the identical call to get the
+returns `pending` with an id, and the agent repeats the identical call to get the
 answer (Claude Desktop is reported to cancel tool calls after about 60 seconds). Requests
 expire after 5 minutes. `broker approvals list | show <id> | approve <id> | deny <id>`;
 `show` counts as opening the full body.
@@ -124,7 +124,7 @@ approver, end in a prompt or a deny rather than a silent send. Known gaps:
 - **Bulk mail is reported, not ruled on.** `bulk` is returned and logged; rules decide before
   a message is read, so it is not a rule condition.
 - **Claude Desktop's tool timeout is unconfirmed** (user reports say ~60 s). Approvals return
-  `pending_approval` after 45 s and rely on the agent repeating the call.
+  `pending` after 45 s and rely on the agent repeating the call.
 - **One gate call at a time per agent process.** A call waiting for approval holds the next
   one for up to 45 s.
 - **Single user.** No multi-user setup.

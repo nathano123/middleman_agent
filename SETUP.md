@@ -42,5 +42,5 @@ run `broker` commands itself; see THREAT_MODEL.md.
 ## Approvals and timeouts
 
 A call needing approval waits `approval_wait_seconds` (default 45), then returns
-`pending_approval` with an id; the agent should repeat the identical call. Claude Desktop is
+`pending` with an id; the agent should repeat the identical call. Claude Desktop is
 reported to cancel tool calls after about 60 seconds, which is why the wait is shorter.

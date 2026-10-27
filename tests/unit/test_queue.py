@@ -154,7 +154,7 @@ def test_gate_returns_pending_then_sends_on_retry(tmp_path: Path) -> None:
     args = {"to": ["alice@work.test"], "subject": "s", "body": "b"}
     first = w.call("send_mail", **args)
     assert first.approval == ApprovalOutcome.PENDING
-    assert first.data["status"] == "pending_approval"
+    assert first.data["status"] == "pending"
     assert w.backend.sent == []
     queue.decide(first.data["approval_id"], approve=True, now=clock())
     second = w.call("send_mail", **args)

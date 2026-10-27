@@ -60,4 +60,4 @@ def test_29b_reconnect_under_new_client_name_through_mcp(tmp_path: Path) -> None
     run(runtime, taint_it, name="claude-desktop")
     result = run(runtime, try_event, name="fresh-innocent-client")
     # Own-calendar event without attendees asks only when tainted: taint followed the agent.
-    assert "Pending approval" in result.content[0].text  # type: ignore[union-attr]
+    assert "NOT DONE YET" in result.content[0].text  # type: ignore[union-attr]

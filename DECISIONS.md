@@ -302,3 +302,15 @@ Sources: docs.ntfy.sh publish, subscribe/api, config, privacy, known-issues and 
 - Requests that require the full body can only be denied from the phone. After 10 prompts per agent per day every request requires it, so heavy days fall back to Deny or the development CLI.
 - A shell-capable agent is not stopped (keychain, config, `approvals.db`). See THREAT_MODEL.md.
 - The pending-text fix is not yet re-checked with Claude Desktop.
+
+### Break checks (each in a throwaway worktree, after commit 578efb7)
+
+| Mutation | Tests that failed |
+|---|---|
+| Accept taps without a nonce check (decide whatever message was tapped; any data but `d` approves) | 6: `test_nonce_from_another_request_is_refused`, `test_forged_reply_without_our_nonce_is_refused` ×5 |
+| Drop the used-nonce check (replay) | 2: `test_replayed_nonce_is_refused`, `test_second_tap_on_same_message_is_refused` |
+| Skip the expiry check (channel and queue) | 2: `test_expired_nonce_is_refused`, `test_request_expires_after_five_minutes` |
+| Let the CLI approve while a phone is configured | 1: `test_cli_approve_and_deny_refused_while_phone_configured` |
+| Drop the owner-id check | 2: `test_tap_from_another_telegram_user_is_refused`, attack 33 |
+
+Removing only the channel's own expiry check is still caught, because `ApprovalQueue.decide` expires and refuses old requests itself; the test then sees `already_decided` instead of `expired`.

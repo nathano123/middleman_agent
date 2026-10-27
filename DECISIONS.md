@@ -314,3 +314,9 @@ Sources: docs.ntfy.sh publish, subscribe/api, config, privacy, known-issues and 
 | Drop the owner-id check | 2: `test_tap_from_another_telegram_user_is_refused`, attack 33 |
 
 Removing only the channel's own expiry check is still caught, because `ApprovalQueue.decide` expires and refuses old requests itself; the test then sees `already_decided` instead of `expired`.
+
+### Live phone test (2026-10-27, iPhone, `BROKER_LIVE_PHONE=1`)
+
+- One real Telegram message with dummy text; owner tapped Approve. Outcome `approved`; the tool call returned after 67.9 s; message sent to tap accepted: 65.6 s.
+- That 65.6 s is mostly the person finding and reading the message (the owner was reading chat at the time), not transport; the run cannot separate the two. With the production wait of 45 s this call would have returned pending first and gone through on the repeat.
+- Buttons showed and worked on iOS, which ntfy's did not.

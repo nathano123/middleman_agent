@@ -254,3 +254,12 @@ Each break applied in `git worktree add --detach <scratch>/wt HEAD` after a comm
 - New refused text starts "REFUSED by policy (code: X)", says the action was not done, and tells the model not to retry unless the user asks. It contains no pending word (pending/waiting/not done yet/call again).
 - `structured_content.status` is now `pending` or `denied` (was `pending_approval`; refused results had no status). `denied: true` and `code` stay for compatibility.
 - This lowers the chance of a misreading; it cannot force a model to act on it. Whether Claude now tells the user to approve is checked in the next Desktop run.
+
+### Draft recipients: option (a), owner-approved
+
+- Dry-run finding: `draft_reply` to "Alice" produced a draft to `billing@alice-payments.test`, the message's Reply-To. Drafts are allowed while tainted and the gate did not flag it.
+- Rule now (`gate.reply_address`): a draft goes to the From address. Reply-To is followed only when it equals From, is a known contact, or is one of your own addresses. Otherwise it is ignored; the result says so with only the ignored address's domain (`reply_to_ignored`), and the log row gets `reply_to_ignored: true` (no address).
+- Why (a) over (b) "follow Reply-To but ask when outside and tainted": a draft is sent later by the person in Gmail, outside the gate, so whatever address the draft holds is the one that leaves. Under (b) an attacker's Reply-To could still sit in an approved draft. (a) also keeps drafts free of prompts.
+- Cost: legitimate Reply-To setups (help desks, mailing lists, assistants sending for a boss) get a draft to the From address; the person fixes it by hand, or adds the Reply-To address to known contacts.
+- The From address itself can be forged; taint covers that (auth fail, unknown sender). A draft to a forged known From goes to the real contact, not the forger.
+- Tests: attack 30 reproduces the dry-run case through the gate (tainted session, draft to `alice@work.test`, log flag set); attack 23 updated; `tests/unit/test_reply_address.py` covers the rule.

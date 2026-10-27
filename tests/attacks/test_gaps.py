@@ -4,6 +4,9 @@ Written before the fixes. Tests that fail on the Milestone 1 code are marked
 xfail(strict=True); the fix that makes one pass removes its marker.
 """
 
+import json
+import sqlite3
+
 from broker.approvals.base import ApprovalOutcome
 from broker.rules.models import Verdict
 from tests.conftest import WorldFactory
@@ -29,7 +32,7 @@ def test_23_reply_to_mismatch_counts_as_outside(world: WorldFactory) -> None:
     assert w.session.tainted
     assert "reply-to" in w.session.taint_reason.lower()
     draft = w.call("draft_reply", message_id="m_replyto", body="Here is the list")
-    assert draft.data["to"] == ["billing@alice-payments.test"]
+    assert draft.data["to"] == ["alice@work.test"]  # attack 30: Reply-To no longer followed
     result = w.call(
         "send_mail", to=["billing@alice-payments.test"], subject="Invoices", body="list"
     )
@@ -99,3 +102,23 @@ def test_28_reconnect_does_not_reset_the_approval_bar(world: WorldFactory) -> No
     assert bad.new_recipients == [EXFIL]  # alice was approved before the reconnect
     assert result.approval == ApprovalOutcome.UNVIEWED
     assert all(m.to == ["alice@work.test"] for m in w.backend.sent)
+
+
+def test_30_draft_reply_ignores_outside_reply_to(world: WorldFactory) -> None:
+    """Dry run: a reply to "Alice" became a draft to billing@alice-payments.test (Reply-To).
+
+    Drafts are allowed while tainted, so the gate must not let Reply-To pick the recipient.
+    """
+    w = world(messages=["m_replyto"])
+    w.call("read_message", message_id="m_replyto")
+    assert w.session.tainted
+    draft = w.call("draft_reply", message_id="m_replyto", body="Here is the list")
+    assert draft.ok
+    assert draft.data["to"] == ["alice@work.test"]
+    assert "alice-payments.test" in draft.data["reply_to_ignored"]
+    [stored] = w.backend.drafts
+    assert stored.to == ["alice@work.test"]
+    assert w.backend.sent == []
+    with sqlite3.connect(w.log_path) as conn:
+        (meta,) = conn.execute("SELECT metadata FROM log ORDER BY id DESC LIMIT 1").fetchone()
+    assert json.loads(meta)["reply_to_ignored"] is True

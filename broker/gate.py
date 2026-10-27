@@ -18,13 +18,14 @@ from broker.approvals.base import (
     final_outcome,
 )
 from broker.audit import AuditLog, MetadataValue
-from broker.backends.base import Backend, BackendError, Event
+from broker.backends.base import Backend, BackendError, Event, Message
 from broker.config import BrokerConfig
 from broker.counters import Counters
 from broker.minimizer import minimize_events, minimize_message, minimize_search
 from broker.rules.evaluator import evaluate
 from broker.rules.models import Action, Constraints, Decision, Profile, Resource, Verdict
 from broker.taint import (
+    Contacts,
     Session,
     normalize_address,
     taint_on_list_events,
@@ -216,6 +217,16 @@ def description_authors(event: Event) -> list[str]:
     return event.description_authors or [event.organizer]
 
 
+def reply_address(contacts: Contacts, message: Message) -> tuple[str, str | None]:
+    """Where a draft reply goes: the From address, or Reply-To only if it is a known contact or
+    one of your own addresses. Returns (address, domain of an ignored Reply-To or None)."""
+    sender = normalize_address(message.sender)
+    reply_to = normalize_address(message.reply_to) if message.reply_to else ""
+    if not reply_to or reply_to == sender or contacts.is_known(reply_to):
+        return reply_to or sender, None
+    return sender, reply_to.rpartition("@")[2]
+
+
 def pending_data(approval_id: str) -> dict[str, str]:
     return {
         "status": "pending",
@@ -372,9 +383,16 @@ class Gate:
             message = b.get_message(args.message_id)
             if message is None:
                 return None, "not_found"
-            to = normalize_address(message.reply_to or message.sender)
+            to, ignored = reply_address(session.contacts, message)
             draft_id = b.create_draft([to], f"Re: {message.subject}", args.body, message.id)
-            return {"draft_id": draft_id, "to": [to]}, None
+            data: dict[str, Any] = {"draft_id": draft_id, "to": [to]}
+            if ignored:
+                meta["reply_to_ignored"] = True
+                data["reply_to_ignored"] = (
+                    f"Reply-To pointed to an outside address at {ignored}; the draft is "
+                    "addressed to the sender instead."
+                )
+            return data, None
         if isinstance(args, SendMailArgs):
             sent = b.send_message(args.to, args.cc, args.subject, args.body, approved_hash)
             return {"sent_id": sent}, None

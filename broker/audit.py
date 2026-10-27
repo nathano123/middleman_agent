@@ -48,6 +48,7 @@ ALLOWED_METADATA_KEYS: frozenset[str] = frozenset(
         "bulk",
         "mode",
         "would_have",
+        "reply_to_ignored",
     }
 )
 

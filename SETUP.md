@@ -9,7 +9,11 @@ approve its own requests.
    `fake_fixture: /ABSOLUTE/PATH/TO/agent-broker/tests/fixtures/mailbox.json`.
 3. Register one agent per MCP client entry: `uv run broker agents add desktop`.
    It prints both snippets below with your real absolute paths.
-4. Answer approvals while testing: `uv run broker approvals list`, `show <id>`, `approve <id>`.
+4. Approvals on your phone (recommended): create a bot with @BotFather in Telegram, then run
+   `uv run broker phone setup` in your own terminal (the token is typed hidden and stored in
+   the keychain; never paste it into a chat), tap Start in the bot, confirm, and set
+   `phone: telegram` in the config. Without a phone, answer with
+   `uv run broker approvals list`, `show <id>`, `approve <id>` (development only).
 
 ## Claude Desktop
 

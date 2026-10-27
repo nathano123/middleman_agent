@@ -275,3 +275,30 @@ Sources: docs.ntfy.sh publish, subscribe/api, config, privacy, known-issues and 
 - Server storage: ntfy.sh caches messages 12 h by default and says it does not log message content by default. A self-hosted server can set `cache-duration: 0`. A self-hosted server reaching iOS uses `upstream-base-url: https://ntfy.sh`, which forwards only a message id and a hash of the topic URL; the phone then fetches the content from the self-hosted server. Without it, iOS delivery "can take hours".
 - Known iOS issues: the app sometimes does not refresh its view; Firebase/APNs delivery sometimes stops until the subscription is re-added.
 - `scripts/ntfy_spike.py` (dummy text only; random topics in git-ignored `secrets/ntfy_spike.json`) reproduces this and times a real tap.
+
+## Milestone 3, Step 3: phone approvals through Telegram
+
+### Why Telegram, not ntfy (owner-approved)
+
+- Real iPhone test (2026-10-27): ntfy notifications arrived, but no button tap ever reached the reply topic in four tries; in some tries no buttons showed. The ntfy iOS source (`ActionExecutor.swift`) opens the app and fires the request silently; failures go only to an internal log, and `clear` is ignored. We could not tell why it failed.
+- ntfy's design flaw for this use stays even when it works: the reply URL and nonce are inside the notification, so anyone who can read the request topic can answer it.
+- Telegram: a button tap reaches the bot as a `callback_query` whose `from.id` Telegram sets. Taps are queued on Telegram's side and fetched by the laptop with `getUpdates`, so the phone never has to reach the laptop and the laptop needs no open port.
+
+### How it works
+
+- `TelegramChannel.notify` sends one message per approval id (idempotent across retries; if sending fails, the next attempt tries again). Buttons carry `a:<nonce>` / `d:<nonce>` (22-char random nonce; `callback_data` allows 64 bytes). The nonce row stores approval id, action hash, message id and send time in `approvals.db`.
+- `QueueApprover` with a channel spends its wait polling (`getUpdates`, 1 s long poll, `allowed_updates=["callback_query"]`), so a tap within the 45 s window lets the first tool call through.
+- A tap is accepted only if: sender id is the owner; data is `a:`/`d:` plus a nonce we issued; the tap is on that nonce's message; the nonce is unused (claimed with a conditional UPDATE); the queued request still has the same action hash, is pending and younger than 5 minutes; and, for Approve, the request does not require the full body. Refusal codes: `wrong_user`, `no_nonce`, `unknown_nonce`, `wrong_message`, `nonce_used`, `wrong_action`, `expired`, `already_decided`, `needs_full_view`. Each tap is logged as a `phone_reply` row with the code and agent id only.
+- The broker answers every tap (`answerCallbackQuery`, so the phone stops spinning) and, for decided or stale requests, edits the message to show the outcome and remove the buttons.
+- One poller at a time: Telegram allows one `getUpdates` per bot, and each MCP connection is its own broker process, so pollers take a non-blocking `flock` on `phone.lock`; the others just wait. Whoever polls writes decisions for every agent into the shared queue. The update offset is stored in `approvals.db`.
+- Telegram unreachable: `notify` logs `phone_error` with a code and returns; the request stays pending as without a phone.
+- Token: typed with `getpass` in `broker phone setup`, checked with `getMe`, stored in the keychain (`telegram-bot-token`) with the owner id (`telegram-owner-id`). The owner is the sender of the first private message to the bot, confirmed by the person at the terminal. Every Bot API URL contains the token, so `HttpTelegram` raises `TelegramError` with a code only, outside the `except` block (no chained cause), never the URL or the server's text. Tests check tracebacks and every file in the state dir.
+- Terminal lockout: with `phone` set, `broker approvals approve|deny` refuse unless `dev_cli_approvals: true`. `list` and `show` still work.
+- Counters: `approval_latency_seconds` per day (message sent to tap accepted); `broker report` prints median and maximum. Counters now re-read the file before each change because several broker processes share it; this narrows lost updates, it does not remove them.
+- Privacy level: `minimal` only (owner's choice for testing). `full` is not built; it would only make sense with a channel the owner runs.
+
+### Known limits
+
+- Requests that require the full body can only be denied from the phone. After 10 prompts per agent per day every request requires it, so heavy days fall back to Deny or the development CLI.
+- A shell-capable agent is not stopped (keychain, config, `approvals.db`). See THREAT_MODEL.md.
+- The pending-text fix is not yet re-checked with Claude Desktop.

@@ -53,16 +53,27 @@ always denied.
 Profiles: `cautious` (asks more, denies tainted sends), `working` (default), `autonomous`
 (asks less; never lets a tainted agent send or create events without approval).
 
-## Approvals in Milestone 2: development only
+## Approvals: phone (Telegram) or terminal (development only)
+
+With `phone: telegram` in the config (after `broker phone setup`), each approval arrives as a
+Telegram message from your own bot with **Approve** and **Deny** buttons. The message holds
+the `minimal` details: recipients with OUTSIDE/NEW flags, subject, body length and short hash,
+and the reason; never the body. A tap counts only from your Telegram account, once, for that
+exact action, within 5 minutes. Telegram sees these messages (bot chats are not end-to-end
+encrypted).
+
+> **This is not a defense against an agent with a shell.** Such an agent runs as you and can
+> read the bot token from the keychain, edit the config, or write a decision into
+> `approvals.db`. The phone protects against an agent that only has this MCP server (for
+> example Claude Desktop). See THREAT_MODEL.md.
 
 > **WARNING - `broker approvals` is for development only.** Any program running as you,
 > including an AI agent with a shell (for example Claude Code), can run
-> `broker approvals approve <id>` and approve its own requests. Use it only with a test
-> account. The real fix is an approval channel the agent cannot reach (phone approvals,
-> Milestone 3). See THREAT_MODEL.md.
+> `broker approvals approve <id>` and approve its own requests. While a phone is configured,
+> `approve` and `deny` refuse unless the config sets `dev_cli_approvals: true`.
 
-A tool call that needs approval waits about 45 seconds. If nobody has answered by then, it
-returns `pending` with an id, and the agent repeats the identical call to get the
+A tool call that needs approval waits about 45 seconds (polling the phone, if configured).
+If nobody has answered by then, it returns "NOT DONE YET" (`status: pending`) with an id, and the agent repeats the identical call to get the
 answer (Claude Desktop is reported to cancel tool calls after about 60 seconds). Requests
 expire after 5 minutes. `broker approvals list | show <id> | approve <id> | deny <id>`;
 `show` counts as opening the full body.
@@ -117,8 +128,11 @@ approver, end in a prompt or a deny rather than a silent send. Known gaps:
   will be self-reported by the MCP client (M2).
 - **Masking is regex-only.** Names, street addresses and many ID formats are not masked.
 - **Agents with a shell are not contained.** An agent that can run commands as you can read
-  the token from the keychain, call Google directly, run `broker approvals approve`, or edit
-  the config. THREAT_MODEL.md lists each bypass.
+  the Google or Telegram token from the keychain, call Google directly, edit the config or
+  `approvals.db`, or (without a phone, or with `dev_cli_approvals`) run
+  `broker approvals approve`. THREAT_MODEL.md lists each bypass.
+- **Phone approvals cannot open a full body.** At the `minimal` level a request that needs
+  the full body (tainted and long, or after 10 prompts a day) can only be denied on the phone.
 - **Search snippets are not masked.** `read_message` masks personal data in body and snippet,
   but `search_mail` returns the first ~90 characters unmasked.
 - **Bulk mail is reported, not ruled on.** `bulk` is returned and logged; rules decide before

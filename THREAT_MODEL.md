@@ -32,7 +32,8 @@ Such an agent runs with the user's own permissions; file modes do not stop it.
 |---|---|---|
 | Read the Google token | `keyring` / `security find-generic-password` from a shell, as the same user | Token is only in the OS keychain, never in a file, log or error. macOS may show an access prompt for some keychain reads; we do not rely on it. Not prevented. |
 | Call Google directly | Use the stolen token, or the user's own browser session, with `curl` or a script | Nothing. The gate is not in that path. |
-| Approve its own request | Run `broker approvals approve <id>` from a shell | The command is labelled development-only in its help and the README. Not prevented; the fix is an approval channel the agent cannot reach (phone approvals, Milestone 3). |
+| Approve its own request | Run `broker approvals approve <id>` from a shell | With `phone: telegram`, the command refuses unless the config sets `dev_cli_approvals: true`. The agent can still edit the config to set it, or write `approved` into `approvals.db` directly (same user). See "Phone approvals" below. Not prevented. |
+| Use the bot token | Read `telegram-bot-token` from the keychain | With the token an agent can send messages as the bot and consume button taps before the broker sees them (which only delays or loses approvals). It cannot make Telegram report a tap from the owner's id. Not prevented, and not needed: it can edit `approvals.db` anyway. |
 | Switch to watch mode | Edit `~/.agent-broker/config.yaml` (`mode: watch`) and wait for a restart | Mode is read only at start-up and no MCP tool can change it. A file edit is not prevented. |
 | Loosen the rules | Edit the profile YAML in the installed package, or pick `profile: autonomous` in the config | Same as above: only file edits can change it, and those are not prevented. |
 | Clear taint / approval history | `broker taint clear`, or delete or edit `taint.db` / `history.db` | `taint clear` writes a log row; direct file edits are not detected (these files are not hash-chained). |
@@ -40,6 +41,42 @@ Such an agent runs with the user's own permissions; file modes do not stop it.
 | Read message content at rest | Read the SQLite files | They hold metadata only (and approved recipient addresses in `history.db`), never bodies. Gmail itself is the content store. |
 | Register a new agent identity | `broker agents add` and start a second server | Possible from a shell; a new identity starts clean. Logged in the config file only. |
 | Impersonate the MCP client | Report a different client name | Identity comes from the `--agent` launch argument, not from the client; the reported name is logged as a hint only. |
+
+## Phone approvals (Milestone 3, Telegram bot)
+
+What the phone channel protects:
+- An agent **without** a shell (Claude Desktop with only this MCP server) cannot answer its own
+  approval: no MCP tool decides approvals, and the terminal commands are off while a phone is
+  configured.
+- A tap counts only if Telegram reports it from the owner's user id (stored at setup), carries
+  a nonce the broker issued, is on the message that nonce was sent in, the nonce is unused,
+  the approval it belongs to still has the same action hash, is still pending, and is less than
+  five minutes old. Everything else is refused and logged as metadata (`phone_reply`).
+- A stranger who finds the bot, or sees a screenshot of a button, cannot approve: Telegram sets
+  the sender id, not the button.
+
+What Telegram (the operator) can see and do:
+- Every approval message at the `minimal` level: tool, recipient addresses (with OUTSIDE/NEW
+  flags), subject (one line, at most 120 characters), event details, body length, a 12-hex
+  hash of the body, the approval number for the day and the rule's reason. Never the body.
+  Bot chats are not end-to-end encrypted.
+- Telegram itself could forge a tap: the owner id in a callback is whatever Telegram says.
+  The bot token alone does not allow that. TLS to `api.telegram.org` is what stops a network
+  attacker from feeding the broker fake updates.
+- If Telegram is down or slow, approvals behave as without a phone: the call waits, returns
+  pending, and the answer is picked up on the repeated call (Telegram keeps unread taps up to
+  24 hours; the request itself expires after 5 minutes).
+
+What a shell-capable agent can still do (same OS user):
+- Read the bot token and owner id from the keychain.
+- Set `dev_cli_approvals: true` or `phone: none` in the config and wait for a restart.
+- Write a decision straight into `approvals.db`.
+So the phone channel is **not** a defense against an agent with a shell. It is a defense
+against an agent that only has this MCP server.
+
+Known limit: a request that requires the full body (tainted and longer than 2000 characters,
+or after 10 prompts per agent per day) cannot be approved on the phone at the `minimal` level;
+the message offers only Deny.
 
 ## Mitigations in v0
 

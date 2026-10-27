@@ -9,3 +9,5 @@ taint_quiet_hours: 24                        # taint expires after this long wit
 full_view_body_chars: 2000                   # tainted + longer body: must open full body to approve
 full_view_after_approvals: 10                # after this many prompts per agent per day, same rule
 state_dir: ~/.agent-broker                   # audit.db, taint.db, counters.json
+phone: none                                  # none | telegram (run `broker phone setup` first)
+dev_cli_approvals: false                     # true lets `broker approvals approve` work with a phone

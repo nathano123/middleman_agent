@@ -1,4 +1,4 @@
-"""Command line: verify-log, profiles, taint clear, agents, approvals, simulate, report."""
+"""Command line: verify-log, profiles, taint clear, agents, approvals, phone, simulate, report."""
 
 import argparse
 import json
@@ -124,7 +124,13 @@ def setup_snippets(label: str, config_path: Path) -> str:
 DEV_WARNING = (
     "WARNING - DEVELOPMENT ONLY: any program running as you, including an AI agent with a "
     "shell (e.g. Claude Code), can run this command and approve its own requests. Use it "
-    "only on a test account. Approvals the agent cannot reach arrive in Milestone 3."
+    "only on a test account. With `phone: telegram` configured, approve and deny are off "
+    "unless the config sets `dev_cli_approvals: true`."
+)
+PHONE_LOCKOUT = (
+    "refused: approvals go to your phone (phone: {phone} in the config). Answering from the "
+    "terminal would let any program running as you, including an agent with a shell, approve "
+    "its own requests. To allow it anyway for development, set `dev_cli_approvals: true`."
 )
 
 
@@ -135,6 +141,9 @@ def cmd_approvals(config_path: Path, action: str, item_id: str | None) -> int:
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    if action in ("approve", "deny") and config.phone != "none" and not config.dev_cli_approvals:
+        print(PHONE_LOCKOUT.format(phone=config.phone), file=sys.stderr)
+        return 1
     queue = ApprovalQueue(config.state_path("approvals.db"))
     try:
         return approvals_action(queue, action, item_id)
@@ -207,6 +216,16 @@ def cmd_auth(config_path: Path) -> int:
     return 0
 
 
+def cmd_phone_setup() -> int:
+    from broker.phone_setup import SetupError, setup_phone
+
+    try:
+        return setup_phone(KeyringKeyStore())
+    except SetupError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="broker", description="Agent Access Broker (v0)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -242,6 +261,9 @@ def build_parser() -> argparse.ArgumentParser:
         if name != "list":
             cmd.add_argument("id")
         cmd.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    phone = sub.add_parser("phone", help="connect a phone for approvals (Telegram bot)")
+    phone_sub = phone.add_subparsers(dest="phone_command", required=True)
+    phone_sub.add_parser("setup", help="connect your Telegram bot; the token goes to the keychain")
     sim = sub.add_parser("simulate", help="replay fake workdays and count prompts")
     sim.add_argument("--profile", choices=[*PROFILE_NAMES, "all"], default="working")
     sim.add_argument("--days", type=int, default=7)
@@ -270,6 +292,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     if args.command == "approvals":
         return cmd_approvals(args.config, args.approvals_command, getattr(args, "id", None))
+    if args.command == "phone":
+        return cmd_phone_setup()
     if args.command == "agents":
         return cmd_agents_add(args.config, args.label)
     if args.command == "simulate":

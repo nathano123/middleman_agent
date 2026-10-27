@@ -9,8 +9,9 @@ from datetime import timedelta
 from typing import Protocol, runtime_checkable
 
 from broker.approvals.history import SQLiteApprovalHistory
-from broker.approvals.queue import ApprovalQueue, QueueApprover
-from broker.audit import AuditLog, KeyringKeyStore
+from broker.approvals.queue import ApprovalQueue, PhoneChannel, QueueApprover
+from broker.approvals.telegram import OWNER_ENTRY, TOKEN_ENTRY, HttpTelegram, TelegramChannel
+from broker.audit import AuditLog, KeyringKeyStore, KeyStore
 from broker.backends.base import Backend
 from broker.backends.fake import FakeBackend
 from broker.config import BrokerConfig, ConfigError
@@ -66,15 +67,40 @@ def open_runtime(config: BrokerConfig, label: str, backend: Backend | None = Non
         frozenset(config.known_contacts) | frozenset(backend_known_contacts(backend)),
     )
     queue = ApprovalQueue(config.state_path("approvals.db"))
-    approver = QueueApprover(queue, agent_id, wait_seconds=config.approval_wait_seconds)
-    log = AuditLog(config.state_path("audit.db"), KeyringKeyStore())
+    keys = KeyringKeyStore()
+    log = AuditLog(config.state_path("audit.db"), keys)
     counters = Counters(config.state_path("counters.json"))
+    channel = open_phone(config, queue, log, counters, keys)
+    approver = QueueApprover(
+        queue, agent_id, wait_seconds=config.approval_wait_seconds, channel=channel
+    )
     gate = Gate(load_profile(config.profile), backend, approver, log, config, counters)
     store = SQLiteTaintStore(
         config.state_path("taint.db"), timedelta(hours=config.taint_quiet_hours)
     )
     history = SQLiteApprovalHistory(config.state_path("history.db"))
     return Runtime(config, agent_id, gate, contacts, store, history)
+
+
+def open_phone(
+    config: BrokerConfig, queue: ApprovalQueue, log: AuditLog, counters: Counters, keys: KeyStore
+) -> PhoneChannel | None:
+    if config.phone == "none":
+        return None
+    token, owner = keys.get(TOKEN_ENTRY), keys.get(OWNER_ENTRY)
+    if not token or not owner:
+        raise ConfigError(
+            "phone: telegram is set but no bot is connected; run `broker phone setup`"
+        )
+    return TelegramChannel(
+        HttpTelegram(token),
+        int(owner),
+        queue,
+        config.state_path("approvals.db"),
+        config.state_path("phone.lock"),
+        log=log,
+        counters=counters,
+    )
 
 
 @runtime_checkable

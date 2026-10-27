@@ -5,6 +5,7 @@ no way in. `broker report` reads the file and prints the weekly summary a tester
 """
 
 import json
+import statistics
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ def empty_day() -> dict[str, Any]:
         "approvals": {o.value: 0 for o in ApprovalOutcome},
         "watch_would_have": {v.value: 0 for v in Verdict},
         "reconsents": 0,  # times Google refused the stored grant (testing mode: every 7 days)
+        "approval_latency_seconds": [],  # phone: message sent -> answer received
     }
 
 
@@ -29,8 +31,13 @@ class Counters:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.days: dict[str, dict[str, Any]] = {}
-        if path.exists():
-            self.days = json.loads(path.read_text(encoding="utf-8")).get("days", {})
+        self.reload()
+
+    def reload(self) -> None:
+        """Re-read before each change: several broker processes (one per agent) share the file.
+        This narrows lost updates to near-simultaneous writes; it does not remove them."""
+        if self.path.exists():
+            self.days = json.loads(self.path.read_text(encoding="utf-8")).get("days", {})
 
     def record(
         self,
@@ -39,6 +46,7 @@ class Counters:
         approval: ApprovalOutcome | None,
         would_have: Verdict | None,
     ) -> None:
+        self.reload()
         row = self.days.setdefault(day.isoformat(), empty_day())
         row["calls"] += 1
         row["decisions"][Verdict(decision).value] += 1
@@ -50,8 +58,15 @@ class Counters:
         self.save()
 
     def record_reconsent(self, day: date) -> None:
+        self.reload()
         row = self.days.setdefault(day.isoformat(), empty_day())
         row["reconsents"] = row.get("reconsents", 0) + 1
+        self.save()
+
+    def record_latency(self, day: date, seconds: float) -> None:
+        self.reload()
+        row = self.days.setdefault(day.isoformat(), empty_day())
+        row.setdefault("approval_latency_seconds", []).append(round(float(seconds), 1))
         self.save()
 
     def save(self) -> None:
@@ -84,5 +99,15 @@ def weekly_report(counters: Counters, end: date) -> str:
         "watch mode would have: "
         + ", ".join(f"{v.value} {total('watch_would_have', v.value)}" for v in Verdict),
         f"Google re-consents needed: {sum(d.get('reconsents', 0) for d in window)}",
+        latency_line([s for d in window for s in d.get("approval_latency_seconds", [])]),
     ]
     return "\n".join(lines)
+
+
+def latency_line(samples: list[float]) -> str:
+    if not samples:
+        return "phone approval latency: no phone answers"
+    return (
+        f"phone approval latency: median {statistics.median(samples):.1f}s, "
+        f"max {max(samples):.1f}s over {len(samples)} answers"
+    )

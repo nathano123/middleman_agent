@@ -49,4 +49,4 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["live: talks to the real Google test account; runs only with BROKER_LIVE=1"]
+markers = ["live: talks to a real service (Google test account or Telegram); opt-in by env var"]

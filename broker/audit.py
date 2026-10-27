@@ -49,6 +49,8 @@ ALLOWED_METADATA_KEYS: frozenset[str] = frozenset(
         "mode",
         "would_have",
         "reply_to_ignored",
+        "phone_reply",
+        "phone_error",
     }
 )
 

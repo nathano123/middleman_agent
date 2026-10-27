@@ -18,6 +18,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Protocol
 
 from broker.approvals.base import ApprovalOutcome, ApprovalRequest, ApprovalResponse
 from broker.files import private_file
@@ -157,9 +158,25 @@ OUTCOMES = {
 }
 
 
+class PhoneChannel(Protocol):
+    """Somewhere the owner answers away from the agent's reach (e.g. TelegramChannel)."""
+
+    def notify(self, item: QueueItem, req: ApprovalRequest) -> None:
+        """Show the request; called on every attempt, must send at most once per item."""
+        ...
+
+    def poll(self, wait: float) -> None:
+        """Collect answers for up to `wait` seconds and write them into the queue."""
+        ...
+
+
 @dataclass
 class QueueApprover:
-    """Approver backed by the queue. Waits up to `wait_seconds`, then answers PENDING."""
+    """Approver backed by the queue. Waits up to `wait_seconds`, then answers PENDING.
+
+    With a phone channel the request is also sent to the phone, and the wait is spent
+    polling it, so an answer within the window lets the first call go through.
+    """
 
     queue: ApprovalQueue
     agent_id: str
@@ -167,12 +184,18 @@ class QueueApprover:
     poll_seconds: float = 1.0
     clock: Callable[[], datetime] = utc_now
     sleep: Callable[[float], None] = time.sleep
+    channel: PhoneChannel | None = None
 
     def request(self, req: ApprovalRequest) -> ApprovalResponse:
         item, is_new = self.queue.open(self.agent_id, req, self.clock())
+        if self.channel is not None and item.status == "pending":
+            self.channel.notify(item, req)
         deadline = self.clock() + timedelta(seconds=self.wait_seconds)
         while item.status == "pending" and self.clock() < deadline:
-            self.sleep(self.poll_seconds)
+            if self.channel is not None:
+                self.channel.poll(self.poll_seconds)
+            else:
+                self.sleep(self.poll_seconds)
             self.queue.expire(self.clock())
             item = self.queue.get(item.id)
         if item.status == "pending":

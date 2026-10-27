@@ -43,6 +43,12 @@ class BrokerConfig(BaseModel):
     approval_wait_seconds: float = Field(default=45.0, gt=0, le=300)
     timezone: str = "UTC"  # IANA name; used for calendar listing and event times
     google_client_file: Path | None = None  # OAuth "Desktop app" client JSON (keep out of git)
+    # Where approval requests go besides the local queue. "telegram": a bot connected with
+    # `broker phone setup`; its token and the owner's user id live in the OS keychain.
+    phone: Literal["none", "telegram"] = "none"
+    # Lets `broker approvals approve/deny` answer requests while a phone is configured.
+    # Development only: any program running as you can run that command.
+    dev_cli_approvals: bool = False
 
     def agent_id_for(self, label: str) -> str:
         """The registered id for a launch label. Unregistered labels are refused."""

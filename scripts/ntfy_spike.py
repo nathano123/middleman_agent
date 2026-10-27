@@ -49,6 +49,8 @@ def wait_for_reply(topic: str, nonce: str, since: int, wait: int) -> tuple[str, 
         try:
             with urllib.request.urlopen(url, timeout=min(60, wait)) as stream:
                 for raw in stream:
+                    if time.monotonic() > deadline:  # keepalives keep the stream open
+                        break
                     event = json.loads(raw)
                     if event.get("event") != "message":
                         continue
@@ -77,7 +79,10 @@ def send(wait: int) -> None:
         "priority": 4,
         "actions": actions,
     })  # fmt: skip
-    print(f"published id={published.get('id')} in {time.time() - started:.2f}s; waiting {wait}s")
+    print(
+        f"published id={published.get('id')} in {time.time() - started:.2f}s; waiting {wait}s",
+        flush=True,
+    )
     answer, event = wait_for_reply(state["reply_topic"], nonce, int(started) - 1, wait)
     latency = time.time() - started
     print(f"answer={answer} latency={latency:.1f}s")
